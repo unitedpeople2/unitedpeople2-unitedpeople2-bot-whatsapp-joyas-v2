@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ==========================================================
-# BOT DAAQUI JOYAS - V12.0 - VERSIÓN FINAL CON TODAS LAS CORRECCIONES
+# BOT DAAQUI JOYAS - V12.1 - VERSIÓN FINAL CON CORRECCIÓN DE INDENTACIÓN
 # ==========================================================
 from flask import Flask, request, jsonify
 import requests
@@ -307,7 +307,6 @@ def get_last_question(state):
     }
     return questions.get(state)
 
-# NUEVA FUNCIÓN PARA CENTRALIZAR LA LÓGICA DE SHALOM
 def gestionar_envio_shalom(from_number, session, distrito_o_provincia):
     """Centraliza la lógica para iniciar un envío por Shalom, corrigiendo el formato."""
     tipo_envio = "Lima Shalom" if session.get('provincia') == "Lima" else "Provincia Shalom"
@@ -319,16 +318,15 @@ def gestionar_envio_shalom(from_number, session, distrito_o_provincia):
     
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     
-    # CORRECCIÓN DE FORMATO: Todo en negrita con un solo asterisco
+    # Usamos doble asterisco para asegurar la negrita en todos los clientes de WhatsApp
     mensaje = (
-        f"Entendido. ✅ Para *{distrito_o_provincia}*, los envíos son por agencia *Shalom* y "
-        f"requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
+        f"Entendido. ✅ Para **{distrito_o_provincia}**, los envíos son por agencia **Shalom** y "
+        f"requieren un adelanto de **S/ {adelanto:.2f}** como compromiso de recojo. 🤝\n\n"
         "¿Estás de acuerdo? (Sí/No)"
     )
     
     send_text_message(from_number, mensaje)
     save_session(from_number, session)
-
 
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
@@ -434,18 +432,15 @@ def handle_sales_flow(from_number, text, session):
         else:
             send_text_message(from_number, "No te entendí bien. Por favor, dime si tu envío es para *Lima* o para *provincia*.")
     
-    # --- BLOQUE CORREGIDO ---
     elif current_state == 'awaiting_province_district':
         provincia, distrito = parse_province_district(text)
         session.update({"provincia": provincia, "distrito": distrito})
-        # Llamamos a la nueva función centralizada
         gestionar_envio_shalom(from_number, session, distrito)
         
-    # --- BLOQUE CORREGIDO ---
     elif current_state == 'awaiting_lima_district':
         distrito, status = normalize_and_check_district(text)
         if status != 'NO_ENCONTRADO':
-            session['distrito'] = distrito
+            session.update({'distrito': distrito}) # Actualizar distrito en la sesión
             if status == 'CON_COBERTURA':
                 session.update({"state": "awaiting_delivery_details", "tipo_envio": "Lima Contra Entrega", "metodo_pago": "Contra Entrega (Efectivo/Yape/Plin)"}); save_session(from_number, session)
                 mensaje = (f"¡Excelente! Tenemos cobertura en *{distrito}*. 🏙️\n\n"
@@ -453,7 +448,6 @@ def handle_sales_flow(from_number, text, session):
                            "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
                 send_text_message(from_number, mensaje)
             elif status == 'SIN_COBERTURA':
-                # Llamamos a la misma función centralizada
                 gestionar_envio_shalom(from_number, session, distrito)
         else:
             send_text_message(from_number, "No pude reconocer ese distrito. Por favor, intenta escribirlo de nuevo.")
@@ -682,7 +676,6 @@ def process_message(message, contacts):
 
         if db:
             session = get_session(from_number)
-            # --- MODIFICACIÓN CLAVE: Solo buscar ventas activas si NO hay una sesión de compra activa ---
             if not session or session.get('state') not in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
                 ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
                 venta_activa = next(ventas_pendientes, None)
@@ -726,7 +719,7 @@ def process_message(message, contacts):
                 send_text_message(from_number, "Hecho. He cancelado el proceso. Si necesitas algo más, escríbeme. 😊")
             return
 
-        session = get_session(from_number) # Volver a obtener la sesión por si fue eliminada
+        session = get_session(from_number) 
         if not session:
             handle_initial_message(from_number, user_name, text_body if message_type == 'text' else "collar girasol")
         else:
@@ -793,7 +786,7 @@ def notify_admin():
 
     if not message_to_admin:
         logger.error("No se recibió 'message' en la solicitud de Make.com a notify-admin")
-        return jsonify({'error': 'Falta el parámetro message'}), 400
+        return jsonify({'error': 'Faltan parámetros'}), 400
     
     try:
         if ADMIN_WHATSAPP_NUMBER:
@@ -806,3 +799,4 @@ def notify_admin():
     except Exception as e:
         logger.error(f"Error crítico en notify_admin: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
+}
