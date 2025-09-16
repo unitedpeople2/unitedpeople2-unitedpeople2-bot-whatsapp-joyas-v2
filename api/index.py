@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ==========================================================
-# BOT DAAQUI JOYAS - V12.2 - VERSIÓN FINAL CON CORRECCIONES
+# BOT DAAQUI JOYAS - V12.0 - VERSIÓN FINAL CON TODAS LAS CORRECCIONES
 # ==========================================================
 from flask import Flask, request, jsonify
 import requests
@@ -307,21 +307,6 @@ def get_last_question(state):
     }
     return questions.get(state)
 
-def gestionar_envio_shalom(from_number, session, distrito_o_provincia):
-    """Centraliza la lógica para iniciar un envío por Shalom, corrigiendo el formato."""
-    tipo_envio = "Lima Shalom" if session.get('provincia') == "Lima" else "Provincia Shalom"
-    session.update({
-        "state": "awaiting_shalom_agreement",
-        "tipo_envio": tipo_envio,
-        "metodo_pago": "Adelanto y Saldo (Yape/Plin)"
-    })
-    adelanto = float(BUSINESS_RULES.get('adelanto_shalom', 20))
-    mensaje_template = BUSINESS_RULES.get('mensaje_plantilla_shalom', 
-                                          "Entendido. ✅ Para **{distrito_o_provincia}**, los envíos son por agencia **Shalom** y requieren un adelanto de **S/ {adelanto:.2f}** como compromiso de recojo. 🤝\n\n¿Estás de acuerdo? (Sí/No)")
-    mensaje = mensaje_template.format(distrito_o_provincia=distrito_o_provincia, adelanto=adelanto)
-    send_text_message(from_number, mensaje)
-    save_session(from_number, session)
-
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
@@ -428,13 +413,16 @@ def handle_sales_flow(from_number, text, session):
     
     elif current_state == 'awaiting_province_district':
         provincia, distrito = parse_province_district(text)
-        session.update({"provincia": provincia, "distrito": distrito})
-        gestionar_envio_shalom(from_number, session, distrito)
+        session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito}); save_session(from_number, session)
+        adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
+        mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
+                   "¿Estás de acuerdo? (Sí/No)")
+        send_text_message(from_number, mensaje)
         
     elif current_state == 'awaiting_lima_district':
         distrito, status = normalize_and_check_district(text)
         if status != 'NO_ENCONTRADO':
-            session.update({'distrito': distrito})
+            session['distrito'] = distrito
             if status == 'CON_COBERTURA':
                 session.update({"state": "awaiting_delivery_details", "tipo_envio": "Lima Contra Entrega", "metodo_pago": "Contra Entrega (Efectivo/Yape/Plin)"}); save_session(from_number, session)
                 mensaje = (f"¡Excelente! Tenemos cobertura en *{distrito}*. 🏙️\n\n"
@@ -442,7 +430,11 @@ def handle_sales_flow(from_number, text, session):
                            "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
                 send_text_message(from_number, mensaje)
             elif status == 'SIN_COBERTURA':
-                gestionar_envio_shalom(from_number, session, distrito)
+                session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"}); save_session(from_number, session)
+                adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
+                mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
+                           "¿Estás de acuerdo? (Sí/No)")
+                send_text_message(from_number, mensaje)
         else:
             send_text_message(from_number, "No pude reconocer ese distrito. Por favor, intenta escribirlo de nuevo.")
 
@@ -492,11 +484,13 @@ def handle_sales_flow(from_number, text, session):
         if 'si' in text.lower() or 'sí' in text.lower():
             if session.get('tipo_envio') == 'Lima Contra Entrega':
                 adelanto = float(BUSINESS_RULES.get('adelanto_lima_delivery', 10))
-                session.update({'adelanto': adelanto, 'state': 'awaiting_lima_payment_agreement'})
-                save_session(from_number, session)
-                mensaje_template = BUSINESS_RULES.get('mensaje_plantilla_lima',
-                                                      "Error: No se encontró la plantilla de Lima.")
-                mensaje = mensaje_template.format(adelanto=adelanto)
+                session.update({'adelanto': adelanto, 'state': 'awaiting_lima_payment_agreement'}); save_session(from_number, session)
+                mensaje = (
+                    "¡Perfecto! Tu pedido contra entrega está listo para ser agendado. ✨\n\n"
+                    "Nuestras rutas de reparto para mañana 🚚 ya se están llenando y tenemos *cupos limitados* ⚠️. Para asegurar tu espacio y priorizar tu entrega, solo solicitamos un adelanto de *S/ 10.00*.\n\n"
+                    "Este pequeño monto confirma tu compromiso y nos permite seguir ofreciendo *envío gratis* a clientes serios como tú. Por supuesto, se descuenta del total.\n\n"
+                    "👉 ¿Procedemos para reservar tu lugar? (*Sí/No*)"
+                )
                 send_text_message(from_number, mensaje)
             else: # Shalom
                 adelanto = float(BUSINESS_RULES.get('adelanto_shalom', 20))
@@ -592,6 +586,7 @@ def handle_sales_flow(from_number, text, session):
         else:
             send_text_message(from_number, "Estoy esperando la *captura de pantalla* de tu pago. 😊")
     
+    # --- NUEVO BLOQUE PARA MANEJAR LA CONFIRMACIÓN FINAL ---
     elif current_state == 'awaiting_delivery_confirmation_lima':
         if 'confirmo' in text.lower():
             mensaje_final = (
@@ -599,7 +594,7 @@ def handle_sales_flow(from_number, text, session):
                 "De parte de todo el equipo de *Daaqui Joyas*, ¡muchas gracias por tu compra! 🎉😊"
             )
             send_text_message(from_number, mensaje_final)
-            delete_session(from_number)
+            delete_session(from_number) # Termina la conversación
         else:
             send_text_message(from_number, "Por favor, para asegurar tu pedido, responde con la palabra *CONFIRMO*.")
     
@@ -668,6 +663,7 @@ def process_message(message, contacts):
 
         if db:
             session = get_session(from_number)
+            # --- MODIFICACIÓN CLAVE: Solo buscar ventas activas si NO hay una sesión de compra activa ---
             if not session or session.get('state') not in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
                 ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
                 venta_activa = next(ventas_pendientes, None)
@@ -711,7 +707,7 @@ def process_message(message, contacts):
                 send_text_message(from_number, "Hecho. He cancelado el proceso. Si necesitas algo más, escríbeme. 😊")
             return
 
-        session = get_session(from_number) 
+        session = get_session(from_number) # Volver a obtener la sesión por si fue eliminada
         if not session:
             handle_initial_message(from_number, user_name, text_body if message_type == 'text' else "collar girasol")
         else:
@@ -791,5 +787,3 @@ def notify_admin():
     except Exception as e:
         logger.error(f"Error crítico en notify_admin: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
-}
-no se aplico los cambio en el codigo de botones, analizalo por favor y dame el codigo corregido
