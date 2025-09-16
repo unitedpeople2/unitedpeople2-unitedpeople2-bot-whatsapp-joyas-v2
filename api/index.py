@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ==========================================================
-# BOT DAAQUI JOYAS - V12.1 - VERSIÓN FINAL CON CORRECCIÓN DE INDENTACIÓN
+# BOT DAAQUI JOYAS - V12.2 - VERSIÓN FINAL CON CORRECCIONES
 # ==========================================================
 from flask import Flask, request, jsonify
 import requests
@@ -315,16 +315,10 @@ def gestionar_envio_shalom(from_number, session, distrito_o_provincia):
         "tipo_envio": tipo_envio,
         "metodo_pago": "Adelanto y Saldo (Yape/Plin)"
     })
-    
-    adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-    
-    # Usamos doble asterisco para asegurar la negrita en todos los clientes de WhatsApp
-    mensaje = (
-        f"Entendido. ✅ Para **{distrito_o_provincia}**, los envíos son por agencia **Shalom** y "
-        f"requieren un adelanto de **S/ {adelanto:.2f}** como compromiso de recojo. 🤝\n\n"
-        "¿Estás de acuerdo? (Sí/No)"
-    )
-    
+    adelanto = float(BUSINESS_RULES.get('adelanto_shalom', 20))
+    mensaje_template = BUSINESS_RULES.get('mensaje_plantilla_shalom', 
+                                          "Entendido. ✅ Para **{distrito_o_provincia}**, los envíos son por agencia **Shalom** y requieren un adelanto de **S/ {adelanto:.2f}** como compromiso de recojo. 🤝\n\n¿Estás de acuerdo? (Sí/No)")
+    mensaje = mensaje_template.format(distrito_o_provincia=distrito_o_provincia, adelanto=adelanto)
     send_text_message(from_number, mensaje)
     save_session(from_number, session)
 
@@ -440,7 +434,7 @@ def handle_sales_flow(from_number, text, session):
     elif current_state == 'awaiting_lima_district':
         distrito, status = normalize_and_check_district(text)
         if status != 'NO_ENCONTRADO':
-            session.update({'distrito': distrito}) # Actualizar distrito en la sesión
+            session.update({'distrito': distrito})
             if status == 'CON_COBERTURA':
                 session.update({"state": "awaiting_delivery_details", "tipo_envio": "Lima Contra Entrega", "metodo_pago": "Contra Entrega (Efectivo/Yape/Plin)"}); save_session(from_number, session)
                 mensaje = (f"¡Excelente! Tenemos cobertura en *{distrito}*. 🏙️\n\n"
@@ -498,13 +492,11 @@ def handle_sales_flow(from_number, text, session):
         if 'si' in text.lower() or 'sí' in text.lower():
             if session.get('tipo_envio') == 'Lima Contra Entrega':
                 adelanto = float(BUSINESS_RULES.get('adelanto_lima_delivery', 10))
-                session.update({'adelanto': adelanto, 'state': 'awaiting_lima_payment_agreement'}); save_session(from_number, session)
-                mensaje = (
-                    "¡Perfecto! Tu pedido contra entrega está listo para ser agendado. ✨\n\n"
-                    "Nuestras rutas de reparto para mañana 🚚 ya se están llenando y tenemos *cupos limitados* ⚠️. Para asegurar tu espacio y priorizar tu entrega, solo solicitamos un adelanto de *S/ 10.00*.\n\n"
-                    "Este pequeño monto confirma tu compromiso y nos permite seguir ofreciendo *envío gratis* a clientes serios como tú. Por supuesto, se descuenta del total.\n\n"
-                    "👉 ¿Procedemos para reservar tu lugar? (*Sí/No*)"
-                )
+                session.update({'adelanto': adelanto, 'state': 'awaiting_lima_payment_agreement'})
+                save_session(from_number, session)
+                mensaje_template = BUSINESS_RULES.get('mensaje_plantilla_lima',
+                                                      "Error: No se encontró la plantilla de Lima.")
+                mensaje = mensaje_template.format(adelanto=adelanto)
                 send_text_message(from_number, mensaje)
             else: # Shalom
                 adelanto = float(BUSINESS_RULES.get('adelanto_shalom', 20))
@@ -786,7 +778,7 @@ def notify_admin():
 
     if not message_to_admin:
         logger.error("No se recibió 'message' en la solicitud de Make.com a notify-admin")
-        return jsonify({'error': 'Faltan parámetros'}), 400
+        return jsonify({'error': 'Falta el parámetro message'}), 400
     
     try:
         if ADMIN_WHATSAPP_NUMBER:
@@ -800,3 +792,4 @@ def notify_admin():
         logger.error(f"Error crítico en notify_admin: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 }
+no se aplico los cambio en el codigo de botones, analizalo por favor y dame el codigo corregido
