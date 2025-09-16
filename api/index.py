@@ -307,6 +307,29 @@ def get_last_question(state):
     }
     return questions.get(state)
 
+# NUEVA FUNCIÓN PARA CENTRALIZAR LA LÓGICA DE SHALOM
+def gestionar_envio_shalom(from_number, session, distrito_o_provincia):
+    """Centraliza la lógica para iniciar un envío por Shalom, corrigiendo el formato."""
+    tipo_envio = "Lima Shalom" if session.get('provincia') == "Lima" else "Provincia Shalom"
+    session.update({
+        "state": "awaiting_shalom_agreement",
+        "tipo_envio": tipo_envio,
+        "metodo_pago": "Adelanto y Saldo (Yape/Plin)"
+    })
+    
+    adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
+    
+    # CORRECCIÓN DE FORMATO: Todo en negrita con un solo asterisco
+    mensaje = (
+        f"Entendido. ✅ Para *{distrito_o_provincia}*, los envíos son por agencia *Shalom* y "
+        f"requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
+        "¿Estás de acuerdo? (Sí/No)"
+    )
+    
+    send_text_message(from_number, mensaje)
+    save_session(from_number, session)
+
+
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
@@ -412,12 +435,10 @@ def handle_sales_flow(from_number, text, session):
             send_text_message(from_number, "No te entendí bien. Por favor, dime si tu envío es para *Lima* o para *provincia*.")
     
     elif current_state == 'awaiting_province_district':
-        provincia, distrito = parse_province_district(text)
-        session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito}); save_session(from_number, session)
-        adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-        mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
-                   "¿Estás de acuerdo? (Sí/No)")
-        send_text_message(from_number, mensaje)
+    provincia, distrito = parse_province_district(text)
+    session.update({"provincia": provincia, "distrito": distrito})
+    # Llamamos a la nueva función centralizada
+    gestionar_envio_shalom(from_number, session, distrito)
         
     elif current_state == 'awaiting_lima_district':
         distrito, status = normalize_and_check_district(text)
@@ -430,11 +451,8 @@ def handle_sales_flow(from_number, text, session):
                            "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
                 send_text_message(from_number, mensaje)
             elif status == 'SIN_COBERTURA':
-                session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"}); save_session(from_number, session)
-                adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-                mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
-                           "¿Estás de acuerdo? (Sí/No)")
-                send_text_message(from_number, mensaje)
+    # Llamamos a la misma función centralizada
+    gestionar_envio_shalom(from_number, session, distrito)
         else:
             send_text_message(from_number, "No pude reconocer ese distrito. Por favor, intenta escribirlo de nuevo.")
 
