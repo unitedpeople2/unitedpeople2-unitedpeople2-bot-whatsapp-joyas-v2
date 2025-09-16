@@ -434,12 +434,14 @@ def handle_sales_flow(from_number, text, session):
         else:
             send_text_message(from_number, "No te entendí bien. Por favor, dime si tu envío es para *Lima* o para *provincia*.")
     
+    # --- BLOQUE CORREGIDO ---
     elif current_state == 'awaiting_province_district':
-    provincia, distrito = parse_province_district(text)
-    session.update({"provincia": provincia, "distrito": distrito})
-    # Llamamos a la nueva función centralizada
-    gestionar_envio_shalom(from_number, session, distrito)
+        provincia, distrito = parse_province_district(text)
+        session.update({"provincia": provincia, "distrito": distrito})
+        # Llamamos a la nueva función centralizada
+        gestionar_envio_shalom(from_number, session, distrito)
         
+    # --- BLOQUE CORREGIDO ---
     elif current_state == 'awaiting_lima_district':
         distrito, status = normalize_and_check_district(text)
         if status != 'NO_ENCONTRADO':
@@ -451,8 +453,8 @@ def handle_sales_flow(from_number, text, session):
                            "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
                 send_text_message(from_number, mensaje)
             elif status == 'SIN_COBERTURA':
-    # Llamamos a la misma función centralizada
-    gestionar_envio_shalom(from_number, session, distrito)
+                # Llamamos a la misma función centralizada
+                gestionar_envio_shalom(from_number, session, distrito)
         else:
             send_text_message(from_number, "No pude reconocer ese distrito. Por favor, intenta escribirlo de nuevo.")
 
@@ -604,7 +606,6 @@ def handle_sales_flow(from_number, text, session):
         else:
             send_text_message(from_number, "Estoy esperando la *captura de pantalla* de tu pago. 😊")
     
-    # --- NUEVO BLOQUE PARA MANEJAR LA CONFIRMACIÓN FINAL ---
     elif current_state == 'awaiting_delivery_confirmation_lima':
         if 'confirmo' in text.lower():
             mensaje_final = (
@@ -612,7 +613,7 @@ def handle_sales_flow(from_number, text, session):
                 "De parte de todo el equipo de *Daaqui Joyas*, ¡muchas gracias por tu compra! 🎉😊"
             )
             send_text_message(from_number, mensaje_final)
-            delete_session(from_number) # Termina la conversación
+            delete_session(from_number)
         else:
             send_text_message(from_number, "Por favor, para asegurar tu pedido, responde con la palabra *CONFIRMO*.")
     
