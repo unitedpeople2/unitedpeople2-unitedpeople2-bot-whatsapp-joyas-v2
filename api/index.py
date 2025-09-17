@@ -741,9 +741,9 @@ def handle_sales_flow(from_number, text, session):
     current_state = session.get('state')
     handler_func = STATE_HANDLERS.get(current_state)
 
-    # --- LÓGICA DE EXCEPCIÓN MEJORADA ---
-    # Si estamos en cualquiera de los estados de menú, no necesitamos un producto todavía.
-    if current_state in ["awaiting_menu_choice", "awaiting_product_choice"]:
+    # --- LÓGICA DE EXCEPCIÓN FINAL ---
+    # Si estamos en cualquiera de los estados de menú, no necesitamos un producto.
+    if current_state in ["awaiting_menu_choice", "awaiting_product_choice", "awaiting_faq_choice"]:
         if handler_func:
             handler_func(from_number, text, session, None) # Pasamos None para product_data
         return
