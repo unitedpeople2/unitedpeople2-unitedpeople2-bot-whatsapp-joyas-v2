@@ -16,15 +16,18 @@ from datetime import datetime
 import uuid
 import gspread
 import unicodedata
+from datetime import datetime, timezone, timedelta
 
 # Configuración del logger
 logging.basicConfig(level=logging.INFO)
 logger = getLogger(__name__)
 
 # ==========================================================
-# 1. INICIALIZACIÓN DE FIREBASE Y REGLAS DE NEGOCIO
+# 1. INICIALIZACIÓN DE SERVICIOS Y VARIABLES GLOBALES
 # ==========================================================
 db = None
+gc = None
+worksheet_pedidos = None # Hoja de cálculo "Pedidos"
 BUSINESS_RULES = {}
 FAQ_RESPONSES = {}
 BUSINESS_DATA = {}
@@ -32,6 +35,7 @@ PALABRAS_CANCELACION = []
 FAQ_KEYWORD_MAP = {}
 
 try:
+    # --- CONEXIÓN CON FIREBASE ---
     service_account_info_str = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
     if service_account_info_str:
         service_account_info = json.loads(service_account_info_str)
@@ -40,43 +44,41 @@ try:
             firebase_admin.initialize_app(cred)
         db = firestore.client()
         logger.info("✅ Conexión con Firebase establecida correctamente.")
-
-        # Carga de reglas de envío
-        rules_doc = db.collection('configuracion').document('reglas_envio').get()
-        if rules_doc.exists:
-            BUSINESS_RULES = rules_doc.to_dict()
-            logger.info("✅ Reglas del negocio cargadas desde Firestore.")
-
-        # Carga de respuestas FAQ
-        faq_doc = db.collection('configuracion').document('respuestas_faq').get()
-        if faq_doc.exists:
-            FAQ_RESPONSES = faq_doc.to_dict()
-            logger.info("✅ Respuestas FAQ cargadas desde Firestore.")
         
-        # Carga de datos del negocio
+        # Carga de toda la configuración desde Firestore...
+        rules_doc = db.collection('configuracion').document('reglas_envio').get()
+        if rules_doc.exists: BUSINESS_RULES = rules_doc.to_dict(); logger.info("✅ Reglas del negocio cargadas.")
+        faq_doc = db.collection('configuracion').document('respuestas_faq').get()
+        if faq_doc.exists: FAQ_RESPONSES = faq_doc.to_dict(); logger.info("✅ Respuestas FAQ cargadas.")
         business_doc = db.collection('configuracion').document('datos_negocio').get()
-        if business_doc.exists:
-            BUSINESS_DATA = business_doc.to_dict()
-            logger.info("✅ Datos del negocio cargados desde Firestore.")
-
-        # Carga de la configuración general (cancelación y mapa de FAQs)
+        if business_doc.exists: BUSINESS_DATA = business_doc.to_dict(); logger.info("✅ Datos del negocio cargados.")
         config_doc = db.collection('configuracion').document('configuracion_general').get()
         if config_doc.exists:
             config_data = config_doc.to_dict()
             PALABRAS_CANCELACION = config_data.get('palabras_cancelacion', ['cancelar'])
             FAQ_KEYWORD_MAP = config_data.get('faq_keyword_map', {})
-            logger.info("✅ Configuración general (cancelación y FAQs) cargada desde Firestore.")
+            logger.info("✅ Configuración general cargada.")
         else:
-            logger.warning("⚠️ Documento 'configuracion_general' no encontrado. Usando valores de respaldo.")
+            logger.warning("⚠️ Documento 'configuracion_general' no encontrado.")
             PALABRAS_CANCELACION = ['cancelar', 'no gracias']
             FAQ_KEYWORD_MAP = {}
-
     else:
         logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
-except Exception as e:
-    logger.error(f"❌ Error crítico inicializando Firebase: {e}")
 
-app = Flask(__name__)
+    # --- AÑADIDO PARA GOOGLE SHEETS ---
+    creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+    sheet_name = os.environ.get('GOOGLE_SHEET_NAME')
+    if creds_json_str and sheet_name:
+        creds_dict = json.loads(creds_json_str)
+        gc = gspread.service_account_from_dict(creds_dict)
+        spreadsheet = gc.open(sheet_name)
+        worksheet_pedidos = spreadsheet.worksheet("Pedidos")
+        logger.info("✅ Conexión con Google Sheets establecida correctamente.")
+    else:
+        logger.warning("⚠️ Faltan variables de entorno para Google Sheets. Las funciones relacionadas no operarán.")
+
+except Exception as e:
+    logger.error(f"❌ Error crítico durante la inicialización de servicios: {e}")
 
 # ==========================================================
 # 2. CONFIGURACIÓN DEL NEGOCIO Y VARIABLES GLOBALES
@@ -131,9 +133,11 @@ def get_session(user_id):
 def save_session(user_id, session_data):
     if not db: return
     try:
+        # AÑADIDO: Siempre guarda la marca de tiempo de la última actualización.
+        session_data['last_updated'] = firestore.SERVER_TIMESTAMP
         db.collection('sessions').document(user_id).set(session_data, merge=True)
     except Exception as e:
-        logger.error(f"Error guardando sesión para {user_id}: {e}")
+        logger.error(f"Error guardando sesión para {user_id}: {e}")	
 
 def delete_session(user_id):
     if not db: return
@@ -236,17 +240,10 @@ def get_delivery_day_message():
         return BUSINESS_RULES.get('mensaje_fin_de_semana', 'el Lunes')
 
 def guardar_pedido_en_sheet(sale_data):
+    if not worksheet_pedidos:
+        logger.error("[Sheets] La conexión no está inicializada. No se puede guardar el pedido.")
+        return False
     try:
-        # --- Esta parte inicial se mantiene igual ---
-        creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-        sheet_name = os.environ.get('GOOGLE_SHEET_NAME')
-        if not creds_json_str or not sheet_name:
-            logger.error("[Sheets] Faltan variables de entorno para Google Sheets.")
-            return False
-        creds_dict = json.loads(creds_json_str)
-        gc = gspread.service_account_from_dict(creds_dict)
-        spreadsheet = gc.open(sheet_name)
-        worksheet = spreadsheet.worksheet("Pedidos")
         nueva_fila = [
             datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             sale_data.get('id_venta', 'N/A'),
@@ -262,39 +259,25 @@ def guardar_pedido_en_sheet(sale_data):
             sale_data.get('cliente_id', 'N/A')
         ]
         
-        # --- INICIO DE LA NUEVA MEJORA ---
-
-        # En lugar de leer toda la hoja, leemos solo los valores de la primera columna (columna A).
-        columna_a = worksheet.col_values(1)
-        
-        # La siguiente fila libre será el número de celdas con datos en esa columna + 1.
+        columna_a = worksheet_pedidos.col_values(1)
         next_row_index = len(columna_a) + 1
-
-        # --- FIN DE LA NUEVA MEJORA ---
-
-        worksheet.insert_row(nueva_fila, next_row_index)
+        worksheet_pedidos.insert_row(nueva_fila, next_row_index)
 
         logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado en la fila {next_row_index}.")
         return True
         
     except Exception as e:
-        logger.error(f"[Sheets] ERROR INESPERADO: {e}")
+        logger.error(f"[Sheets] ERROR INESPERADO al guardar: {e}")
         return False
 
 def find_key_in_sheet(cliente_id):
+    if not worksheet_pedidos:
+        logger.error("[Sheets] La conexión no está inicializada. No se puede buscar la clave.")
+        return None
     try:
-        creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-        sheet_name = os.environ.get('GOOGLE_SHEET_NAME')
-        if not creds_json_str or not sheet_name:
-            logger.error("[Sheets] Faltan variables de entorno para buscar clave.")
-            return None
-        creds_dict = json.loads(creds_json_str)
-        gc = gspread.service_account_from_dict(creds_dict)
-        spreadsheet = gc.open(sheet_name)
-        worksheet = spreadsheet.worksheet("Pedidos")
-        cell = worksheet.find(cliente_id, in_column=12) 
+        cell = worksheet_pedidos.find(cliente_id, in_column=12) 
         if cell:
-            clave = worksheet.cell(cell.row, 15).value 
+            clave = worksheet_pedidos.cell(cell.row, 15).value 
             logger.info(f"[Sheets] Clave encontrada para {cliente_id}: {'Sí' if clave else 'No'}")
             return clave
         else:
@@ -730,12 +713,28 @@ def process_message(message, contacts):
     try:
         from_number = message.get('from')
         user_name = next((c.get('profile', {}).get('name', 'Usuario') for c in contacts if c.get('wa_id') == from_number), 'Usuario')
+        
+        # --- LÓGICA DE EXPIRACIÓN DE SESIÓN AÑADIDA ---
+        session = get_session(from_number)
+        if session and 'last_updated' in session:
+            last_update_time = session['last_updated']
+            # Aseguramos que el timestamp tenga zona horaria para una comparación correcta
+            if last_update_time.tzinfo is None:
+                last_update_time = last_update_time.replace(tzinfo=timezone.utc)
+
+            # Límite de 2 horas
+            if datetime.now(timezone.utc) - last_update_time > timedelta(hours=2):
+                logger.info(f"Sesión expirada por inactividad para {from_number}. Eliminando.")
+                delete_session(from_number)
+                send_text_message(from_number, "Hola de nuevo. 😊 Parece que ha pasado un tiempo. Si necesitas algo, no dudes en preguntar.")
+                session = None # Anulamos la sesión para que el flujo comience de nuevo
+
+        # --- El resto del código continúa desde aquí ---
         message_type = message.get('type')
         text_body = ""
         if message_type == 'text':
             text_body = message.get('text', {}).get('body', '')
         elif message_type == 'image':
-            session = get_session(from_number)
             if session and session.get('state') in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
                 text_body = "COMPROBANTE_RECIBIDO"
             else:
@@ -763,54 +762,43 @@ def process_message(message, contacts):
                 send_text_message(from_number, "❌ Error: Usa: clave <numero> <clave>")
             return
 
-        if db:
-            session = get_session(from_number)
-            # --- MODIFICACIÓN CLAVE: Solo buscar ventas activas si NO hay una sesión de compra activa ---
-            if not session or session.get('state') not in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
-                ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
-                venta_activa = next(ventas_pendientes, None)
-                
-                if venta_activa:
-                    venta_data = venta_activa.to_dict()
-                    text_lower = text_body.lower()
-                    
-                    if any(k in text_lower for k in ['cuánto debo', 'cuanto debo', 'cuál es mi saldo', 'mi saldo', 'falta pagar', 'saldo restante']):
-                        saldo = venta_data.get('saldo_restante', 0)
-                        msg_saldo = f"¡Hola {user_name}! 😊 Claro, tu saldo restante para el pedido es de *S/ {saldo:.2f}*. Quedo atento a tu comprobante para enviarte la clave secreta. ✨"
-                        send_text_message(from_number, msg_saldo)
-                        return
-
-                    if any(k in text_lower for k in ['número', 'numero', 'yape', 'plin', 'cuenta']):
-                        msg_yape = (f"¡Por supuesto! Puedes realizar el pago final a nuestro Yape/Plin: *{YAPE_NUMERO}* a nombre de *{TITULAR_YAPE}*.\n\n"
-                                    "No olvides enviarme la captura para darte tu clave. ¡Gracias! 🔑")
-                        send_text_message(from_number, msg_yape)
-                        return
-
-                    if message_type == 'image' and venta_data.get('tipo_envio') in ['Provincia Shalom', 'Lima Shalom']:
-                        logger.info(f"Posible pago final (imagen) detectado de {from_number} para envío Shalom.")
-                        clave_encontrada = find_key_in_sheet(from_number)
-                        notificacion_info = (f"🔔 *¡Atención! Posible Pago Final Recibido* 🔔\n\n"
-                                        f"El cliente *{user_name}* ({from_number}) con un pedido pendiente acaba de enviar una imagen.\n")
-                        if clave_encontrada:
-                            notificacion_info += f"*Clave Encontrada en Sheet:* `{clave_encontrada}`"
-                            comando_listo = f"clave {from_number} {clave_encontrada}"
-                            send_text_message(ADMIN_WHATSAPP_NUMBER, notificacion_info)
-                            time.sleep(1)
-                            send_text_message(ADMIN_WHATSAPP_NUMBER, comando_listo)
-                        else:
-                            notificacion_info += ("*Clave:* No encontrada en Sheet.\n\n"
-                                             f"Busca la clave y envíala con:\n`clave {from_number} LA_CLAVE_SECRETA`")
-                            send_text_message(ADMIN_WHATSAPP_NUMBER, notificacion_info)
-                        return
-
         if any(palabra in text_body.lower() for palabra in PALABRAS_CANCELACION):
             if get_session(from_number):
                 delete_session(from_number)
                 send_text_message(from_number, "Hecho. He cancelado el proceso. Si necesitas algo más, escríbeme. 😊")
             return
 
-        session = get_session(from_number) # Volver a obtener la sesión por si fue eliminada
+        # Volvemos a obtener la sesión por si fue eliminada por la lógica de expiración o cancelación
+        session = get_session(from_number)
         if not session:
+            # Lógica para manejar mensajes de clientes con pagos finales pendientes pero sin sesión
+            if db:
+                ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
+                venta_activa = next(ventas_pendientes, None)
+                if venta_activa:
+                    if message_type == 'image': # Si envían imagen, es probable que sea un pago final
+                         logger.info(f"Posible pago final (imagen) detectado de {from_number} para envío Shalom.")
+                         clave_encontrada = find_key_in_sheet(from_number)
+                         notificacion_info = (f"🔔 *¡Atención! Posible Pago Final Recibido* 🔔\n\n"
+                                         f"El cliente *{user_name}* ({from_number}) con un pedido pendiente acaba de enviar una imagen.\n")
+                         if clave_encontrada:
+                             notificacion_info += f"*Clave Encontrada en Sheet:* `{clave_encontrada}`"
+                             comando_listo = f"clave {from_number} {clave_encontrada}"
+                             send_text_message(ADMIN_WHATSAPP_NUMBER, notificacion_info)
+                             time.sleep(1)
+                             send_text_message(ADMIN_WHATSAPP_NUMBER, comando_listo)
+                         else:
+                             notificacion_info += ("*Clave:* No encontrada en Sheet.\n\n"
+                                              f"Busca la clave y envíala con:\n`clave {from_number} LA_CLAVE_SECRETA`")
+                             send_text_message(ADMIN_WHATSAPP_NUMBER, notificacion_info)
+                         return
+                    else: # Si escriben texto, les recordamos cómo pagar
+                        msg_yape = (f"¡Hola {user_name}! 😊 Veo que tienes un pago pendiente. Puedes realizarlo a nuestro Yape/Plin: *{YAPE_NUMERO}* a nombre de *{TITULAR_YAPE}*.\n\n"
+                                    "No olvides enviarme la captura para darte tu clave. ¡Gracias! 🔑")
+                        send_text_message(from_number, msg_yape)
+                        return
+            
+            # Si no hay venta pendiente, inicia el flujo normal
             handle_initial_message(from_number, user_name, text_body if message_type == 'text' else "collar girasol")
         else:
             handle_sales_flow(from_number, text_body, session)
