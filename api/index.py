@@ -35,6 +35,10 @@ FAQ_RESPONSES = {}
 BUSINESS_DATA = {}
 PALABRAS_CANCELACION = []
 FAQ_KEYWORD_MAP = {}
+MENU_PRINCIPAL = {}
+
+
+
 
 try:
     # --- CONEXIÓN CON FIREBASE ---
@@ -61,11 +65,20 @@ try:
             FAQ_KEYWORD_MAP = config_data.get('faq_keyword_map', {})
             logger.info("✅ Configuración general cargada.")
         else:
-            logger.warning("⚠️ Documento 'configuracion_general' no encontrado.")
-            PALABRAS_CANCELACION = ['cancelar', 'no gracias']
-            FAQ_KEYWORD_MAP = {}
+            # ... (justo después de la línea que carga FAQ_KEYWORD_MAP)
+
+    # --- AÑADIR ESTO PARA CARGAR EL MENÚ ---
+    menu_doc = db.collection('configuracion').document('menu_principal').get()
+    if menu_doc.exists:
+        MENU_PRINCIPAL = menu_doc.to_dict()
+        logger.info("✅ Menú principal cargado.")
     else:
-        logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
+        MENU_PRINCIPAL = {} # Aseguramos que exista para no causar errores
+        logger.warning("⚠️ Documento 'menu_principal' no encontrado.")
+    # ------------------------------------
+
+else:
+    logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
 
     # --- AÑADIDO PARA GOOGLE SHEETS ---
     creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
@@ -340,8 +353,10 @@ def check_and_handle_faq(from_number, text, session):
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
 def handle_initial_message(from_number, user_name, text):
+    # Primero, revisamos si el mensaje es para un producto específico (tráfico de anuncio)
     product_id, product_data = find_product_by_keywords(text)
     if product_data:
+        # Si encuentra un producto, inicia el flujo de venta como antes
         nombre_producto, desc_corta, precio, url_img = product_data.get('nombre', ''), product_data.get('descripcion_corta', ''), product_data.get('precio_base', 0), product_data.get('imagenes', {}).get('principal')
         if url_img: send_image_message(from_number, url_img); time.sleep(1)
         msg = (f"¡Hola {user_name}! 🌞 El *{nombre_producto}* {desc_corta}\n\n"
@@ -351,12 +366,41 @@ def handle_initial_message(from_number, user_name, text):
         save_session(from_number, {"state": "awaiting_occasion_response", "product_id": product_id, "product_name": nombre_producto, "product_price": float(precio), "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False})
         return
    
-    # Llamamos a nuestra nueva función centralizada
+    # Si no es un producto, revisamos si es una FAQ
     if check_and_handle_faq(from_number, text, session=None):
-        return # La función ya se encargó de responder
+        return
 
-    # Este es el mensaje que se envía si el texto no es ni un producto ni una FAQ
-    send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*. Si deseas información sobre nuestro *Collar Mágico Girasol Radiant*, solo pregunta por él. 😊")
+    # <-- NUEVA LÓGICA PARA TRÁFICO ORGÁNICO -->
+    # Si no fue ninguna de las anteriores, es un usuario orgánico. ¡Mostramos el menú!
+    if MENU_PRINCIPAL:
+        welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
+        options = MENU_PRINCIPAL.get('opciones', {})
+        
+        # Formateamos el menú para que se vea bien en WhatsApp
+        menu_text = "\n".join([f"{key}️⃣ {value}" for key, value in sorted(options.items())])
+        
+        full_message = f"{welcome_message}\n\n{menu_text}"
+        send_text_message(from_number, full_message)
+        
+        # Guardamos la sesión para saber que estamos esperando una respuesta del menú
+        save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
+    else:
+        # Fallback si el menú no se carga por alguna razón
+        send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*.")
+
+def handle_menu_choice(from_number, text, session, product_data):
+    choice = text.strip()
+    if choice == '1':
+        # El usuario quiere ver productos, iniciamos el flujo de venta con el producto por defecto
+        handle_initial_message(from_number, session.get('user_name'), "collar girasol")
+    elif choice == '2':
+        # El usuario quiere ver FAQs, le mostramos la lista o una intro
+        faq_intro = FAQ_RESPONSES.get('intro_faq', '¡Claro! Estas son nuestras preguntas más comunes. También puedes escribir tu pregunta directamente.')
+        send_text_message(from_number, faq_intro)
+        # Aquí podrías listar algunas preguntas clave si quieres
+        delete_session(from_number) # Borramos la sesión para que su próxima pregunta sea tratada como una nueva
+    else:
+        send_text_message(from_number, "Por favor, responde con el número de la opción (ej: 1).")
 
 # ==============================================================================
 # 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA - REFACTORIZADO)
@@ -648,6 +692,7 @@ STATE_HANDLERS = {
     "awaiting_lima_payment": handle_payment_received,
     "awaiting_shalom_payment": handle_payment_received,
     "awaiting_delivery_confirmation_lima": handle_delivery_confirmation_lima,
+    "awaiting_menu_choice": handle_menu_choice,
 }
 
 def handle_sales_flow(from_number, text, session):
