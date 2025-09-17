@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ==========================================================
-# BOT DAAQUI JOYAS - V12.0 - VERSIÓN FINAL CON TODAS LAS CORRECCIONES
+# BOT DAAQUI JOYAS - VERSIÓN CORREGIDA Y COMPLETA
 # ==========================================================
 from flask import Flask, request, jsonify
 import requests
@@ -29,16 +29,13 @@ app = Flask(__name__)
 # ==========================================================
 db = None
 gc = None
-worksheet_pedidos = None # Hoja de cálculo "Pedidos"
+worksheet_pedidos = None
 BUSINESS_RULES = {}
 FAQ_RESPONSES = {}
 BUSINESS_DATA = {}
 PALABRAS_CANCELACION = []
 FAQ_KEYWORD_MAP = {}
 MENU_PRINCIPAL = {}
-
-
-
 
 try:
     # --- CONEXIÓN CON FIREBASE ---
@@ -64,33 +61,31 @@ try:
             PALABRAS_CANCELACION = config_data.get('palabras_cancelacion', ['cancelar'])
             FAQ_KEYWORD_MAP = config_data.get('faq_keyword_map', {})
             logger.info("✅ Configuración general cargada.")
+
+        # --- CÓDIGO DEL MENÚ EN SU LUGAR CORRECTO ---
+        menu_doc = db.collection('configuracion').document('menu_principal').get()
+        if menu_doc.exists:
+            MENU_PRINCIPAL = menu_doc.to_dict()
+            logger.info("✅ Menú principal cargado.")
         else:
-            # ... (justo después de la línea que carga FAQ_KEYWORD_MAP)
+            MENU_PRINCIPAL = {}
+            logger.warning("⚠️ Documento 'menu_principal' no encontrado.")
+        # ------------------------------------
 
-    # --- AÑADIR ESTO PARA CARGAR EL MENÚ ---
-    menu_doc = db.collection('configuracion').document('menu_principal').get()
-    if menu_doc.exists:
-        MENU_PRINCIPAL = menu_doc.to_dict()
-        logger.info("✅ Menú principal cargado.")
+        # --- AÑADIDO PARA GOOGLE SHEETS ---
+        creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+        sheet_name = os.environ.get('GOOGLE_SHEET_NAME')
+        if creds_json_str and sheet_name:
+            creds_dict = json.loads(creds_json_str)
+            gc = gspread.service_account_from_dict(creds_dict)
+            spreadsheet = gc.open(sheet_name)
+            worksheet_pedidos = spreadsheet.worksheet("Pedidos")
+            logger.info("✅ Conexión con Google Sheets establecida correctamente.")
+        else:
+            logger.warning("⚠️ Faltan variables de entorno para Google Sheets. Las funciones relacionadas no operarán.")
+
     else:
-        MENU_PRINCIPAL = {} # Aseguramos que exista para no causar errores
-        logger.warning("⚠️ Documento 'menu_principal' no encontrado.")
-    # ------------------------------------
-
-else:
-    logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
-
-    # --- AÑADIDO PARA GOOGLE SHEETS ---
-    creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-    sheet_name = os.environ.get('GOOGLE_SHEET_NAME')
-    if creds_json_str and sheet_name:
-        creds_dict = json.loads(creds_json_str)
-        gc = gspread.service_account_from_dict(creds_dict)
-        spreadsheet = gc.open(sheet_name)
-        worksheet_pedidos = spreadsheet.worksheet("Pedidos")
-        logger.info("✅ Conexión con Google Sheets establecida correctamente.")
-    else:
-        logger.warning("⚠️ Faltan variables de entorno para Google Sheets. Las funciones relacionadas no operarán.")
+        logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
 
 except Exception as e:
     logger.error(f"❌ Error crítico durante la inicialización de servicios: {e}")
@@ -148,7 +143,6 @@ def get_session(user_id):
 def save_session(user_id, session_data):
     if not db: return
     try:
-        # AÑADIDO: Siempre guarda la marca de tiempo de la última actualización.
         session_data['last_updated'] = firestore.SERVER_TIMESTAMP
         db.collection('sessions').document(user_id).set(session_data, merge=True)
     except Exception as e:
@@ -273,14 +267,9 @@ def guardar_pedido_en_sheet(sale_data):
             sale_data.get('detalles_cliente', 'N/A'),
             sale_data.get('cliente_id', 'N/A')
         ]
-        
-        # Corrección: La línea siguiente debe estar DENTRO del try.
         worksheet_pedidos.append_row(nueva_fila)
-
-        # Corrección: Eliminamos la variable 'next_row_index' que ya no existe.
         logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado exitosamente.")
         return True
-        
     except Exception as e:
         logger.error(f"[Sheets] ERROR INESPERADO al guardar: {e}")
         return False
@@ -322,41 +311,29 @@ def get_last_question(state):
 # 5.1. FUNCIÓN CENTRALIZADA DE FAQ (NUEVA SECCIÓN)
 # ==============================================================================
 def check_and_handle_faq(from_number, text, session):
-    """
-    Revisa si el texto coincide con una FAQ. Si es así, envía la respuesta y 
-    devuelve True. De lo contrario, devuelve False.
-    """
     text_lower = text.lower()
     for key, keywords in FAQ_KEYWORD_MAP.items():
         if any(keyword in text_lower for keyword in keywords):
             response_text = FAQ_RESPONSES.get(key)
-            
-            # Lógica "inteligente": si hay una sesión, personaliza la respuesta
             if session:
                 if key == 'precio' and session.get('product_name'):
                     response_text = f"¡Claro! El precio de tu pedido (*{session['product_name']}*) es de *S/ {session['product_price']:.2f}*, con envío gratis. 🚚"
                 elif key == 'stock' and session.get('product_name'):
                     response_text = f"¡Sí, claro! Aún tenemos unidades del *{session['product_name']}*. ✨ ¿Iniciamos tu pedido?"
-            
             if response_text:
                 send_text_message(from_number, response_text)
-                
-                # Si el usuario está en medio de un flujo, recuérdale la última pregunta para no perderlo
                 if session and (last_question := get_last_question(session.get('state'))):
                     time.sleep(1)
                     send_text_message(from_number, f"¡Espero haber aclarado tu duda! 😊 Continuando...\n\n{last_question}")
-                
-                return True # ¡Importante! Indicamos que el mensaje fue manejado.
-    return False # No se encontró ninguna FAQ
+                return True
+    return False
 
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
 def handle_initial_message(from_number, user_name, text):
-    # Primero, revisamos si el mensaje es para un producto específico (tráfico de anuncio)
     product_id, product_data = find_product_by_keywords(text)
     if product_data:
-        # Si encuentra un producto, inicia el flujo de venta como antes
         nombre_producto, desc_corta, precio, url_img = product_data.get('nombre', ''), product_data.get('descripcion_corta', ''), product_data.get('precio_base', 0), product_data.get('imagenes', {}).get('principal')
         if url_img: send_image_message(from_number, url_img); time.sleep(1)
         msg = (f"¡Hola {user_name}! 🌞 El *{nombre_producto}* {desc_corta}\n\n"
@@ -366,50 +343,33 @@ def handle_initial_message(from_number, user_name, text):
         save_session(from_number, {"state": "awaiting_occasion_response", "product_id": product_id, "product_name": nombre_producto, "product_price": float(precio), "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False})
         return
    
-    # Si no es un producto, revisamos si es una FAQ
     if check_and_handle_faq(from_number, text, session=None):
         return
 
-    # <-- NUEVA LÓGICA PARA TRÁFICO ORGÁNICO -->
-    # Si no fue ninguna de las anteriores, es un usuario orgánico. ¡Mostramos el menú!
     if MENU_PRINCIPAL:
         welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
         options = MENU_PRINCIPAL.get('opciones', {})
-        
-        # Formateamos el menú para que se vea bien en WhatsApp
         menu_text = "\n".join([f"{key}️⃣ {value}" for key, value in sorted(options.items())])
-        
         full_message = f"{welcome_message}\n\n{menu_text}"
         send_text_message(from_number, full_message)
-        
-        # Guardamos la sesión para saber que estamos esperando una respuesta del menú
         save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
     else:
-        # Fallback si el menú no se carga por alguna razón
         send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*.")
 
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
     if choice == '1':
-        # El usuario quiere ver productos, iniciamos el flujo de venta con el producto por defecto
         handle_initial_message(from_number, session.get('user_name'), "collar girasol")
     elif choice == '2':
-        # El usuario quiere ver FAQs, le mostramos la lista o una intro
         faq_intro = FAQ_RESPONSES.get('intro_faq', '¡Claro! Estas son nuestras preguntas más comunes. También puedes escribir tu pregunta directamente.')
         send_text_message(from_number, faq_intro)
-        # Aquí podrías listar algunas preguntas clave si quieres
-        delete_session(from_number) # Borramos la sesión para que su próxima pregunta sea tratada como una nueva
+        delete_session(from_number)
     else:
         send_text_message(from_number, "Por favor, responde con el número de la opción (ej: 1).")
 
 # ==============================================================================
 # 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA - REFACTORIZADO)
 # ==============================================================================
-
-# ------------------------------------------------------------------------------
-# 7.1. Funciones Manejadoras de Estado (Handlers)
-# ------------------------------------------------------------------------------
-
 def handle_occasion_response(from_number, text, session, product_data):
     url_imagen_empaque = product_data.get('imagenes', {}).get('empaque')
     detalles = product_data.get('detalles', {})
@@ -421,7 +381,7 @@ def handle_occasion_response(from_number, text, session, product_data):
         time.sleep(1)
         
     mensaje_persuasion_1 = (f"¡Maravillosa elección! ✨ El *Collar Mágico Girasol Radiant* es pura energía. Aquí tienes todos los detalles:\n\n"
-                            f"💎 *Material:* {material} ¡Hipoalergénico y no se oscurece!\n"
+                            f"💎 *Material:* {material} ¡Hipoalgénico y no se oscurece!\n"
                             f"🔮 *La Magia:* Su piedra central es termocromática, cambia de color con tu temperatura.\n"
                             f"🎁 *Presentación:* {presentacion}")
     send_text_message(from_number, mensaje_persuasion_1)
@@ -451,7 +411,6 @@ def handle_purchase_decision(from_number, text, session, product_data):
         
         upsell_message_2 = ("Para continuar, por favor, respóndeme:\n"
                             "👉🏽 Escribe *oferta* para ampliar tu pedido.\n"
-
                             "👉🏽 Escribe *continuar* para llevar solo un collar.")
         send_text_message(from_number, upsell_message_2)
         
@@ -810,9 +769,29 @@ def process_message(message, contacts):
             return
 
         if any(palabra in text_body.lower() for palabra in PALABRAS_CANCELACION):
-            if get_session(from_number):
+            session = get_session(from_number)
+            if session:
                 delete_session(from_number)
                 send_text_message(from_number, "Hecho. He cancelado el proceso. Si necesitas algo más, escríbeme. 😊")
+                return # Detenemos aquí
+
+            # NUEVA LÓGICA: ¿Y si no hay sesión pero sí una venta pendiente?
+            venta_activa = None
+            if db:
+                ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
+                venta_activa = next(ventas_pendientes, None)
+            
+            if venta_activa:
+                # Opcional: Podrías actualizar el estado en Firestore a "Cancelado"
+                # db.collection('ventas').document(venta_activa.id).update({'estado_pedido': 'Cancelado por Cliente'})
+                send_text_message(from_number, "Entendido. He detenido los recordatorios sobre tu pedido pendiente. Si tienes alguna consulta, un asesor se pondrá en contacto. ¡Gracias!")
+                
+                # Opcional: Notificar al admin sobre la cancelación
+                if ADMIN_WHATSAPP_NUMBER:
+                    send_text_message(ADMIN_WHATSAPP_NUMBER, f"⚠️ El cliente {from_number} ({user_name}) ha solicitado cancelar el seguimiento de su pedido pendiente.")
+                return # Detenemos el proceso aquí también
+
+            # Si no hay ni sesión ni venta pendiente, simplemente no responde.
             return
 
         # Volvemos a obtener la sesión por si fue eliminada por la lógica de expiración o cancelación
@@ -924,3 +903,4 @@ def notify_admin():
     except Exception as e:
         logger.error(f"Error crítico en notify_admin: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
+}
