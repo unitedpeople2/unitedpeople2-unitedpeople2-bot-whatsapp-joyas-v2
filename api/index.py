@@ -36,6 +36,7 @@ BUSINESS_DATA = {}
 PALABRAS_CANCELACION = []
 FAQ_KEYWORD_MAP = {}
 MENU_PRINCIPAL = {}
+CATALOGO_PRODUCTOS = {}
 
 try:
     # --- CONEXIÓN CON FIREBASE ---
@@ -71,6 +72,16 @@ try:
             MENU_PRINCIPAL = {}
             logger.warning("⚠️ Documento 'menu_principal' no encontrado.")
         # ------------------------------------
+
+	# --- AÑADIR ESTO PARA CARGAR EL CATÁLOGO ---
+        catalogo_doc = db.collection('configuracion').document('catalogo_productos').get()
+        if catalogo_doc.exists:
+            CATALOGO_PRODUCTOS = catalogo_doc.to_dict()
+            logger.info("✅ Catálogo de productos cargado.")
+        else:
+            CATALOGO_PRODUCTOS = {}
+            logger.warning("⚠️ Documento 'catalogo_productos' no encontrado.")
+
 
         # --- AÑADIDO PARA GOOGLE SHEETS ---
         creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
@@ -158,13 +169,21 @@ def delete_session(user_id):
 def find_product_by_keywords(text):
     if not db: return None, None
     try:
+        # Primero, intenta tratar el texto como un ID de producto directo.
+        # Esto permitirá que nuestro nuevo menú de catálogo funcione.
+        product_doc = db.collection('productos').document(text).get()
+        if product_doc.exists and product_doc.to_dict().get('activo'):
+            return text, product_doc.to_dict()
+
+        # Si no es un ID, busca por palabras clave como lo hacía antes (para los anuncios).
         if any(keyword in text.lower() for keyword in KEYWORDS_GIRASOL):
             product_id = "collar-girasol-radiant-01"
             product_doc = db.collection('productos').document(product_id).get()
             if product_doc.exists and product_doc.to_dict().get('activo'):
                 return product_id, product_doc.to_dict()
+                
     except Exception as e:
-        logger.error(f"Error buscando producto por palabras clave: {e}")
+        logger.error(f"Error buscando producto por palabras clave o ID: {e}")
     return None, None
 
 def save_completed_sale_and_customer(session_data):
@@ -359,13 +378,43 @@ def handle_initial_message(from_number, user_name, text):
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
     if choice == '1':
-        handle_initial_message(from_number, session.get('user_name'), "collar girasol")
+        # --- NUEVA LÓGICA ---
+        # Ahora mostramos el menú de productos que cargamos desde Firebase
+        if CATALOGO_PRODUCTOS:
+            mensaje_catalogo = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
+            # Formateamos el catálogo para que se vea bien
+            catalogo_texto = "\n".join([f"{key}️⃣ {value.get('nombre', '')}" for key, value in sorted(CATALOGO_PRODUCTOS.items())])
+            
+            send_text_message(from_number, f"{mensaje_catalogo}\n\n{catalogo_texto}")
+            
+            # Guardamos el nuevo estado, esperando que el cliente elija un producto
+            save_session(from_number, {"state": "awaiting_product_choice"})
+        else:
+            send_text_message(from_number, "Lo siento, parece que no pude cargar el catálogo en este momento. Inténtalo más tarde.")
+        # --------------------
     elif choice == '2':
         faq_intro = FAQ_RESPONSES.get('intro_faq', '¡Claro! Estas son nuestras preguntas más comunes. También puedes escribir tu pregunta directamente.')
         send_text_message(from_number, faq_intro)
         delete_session(from_number)
     else:
         send_text_message(from_number, "Por favor, responde con el número de la opción (ej: 1).")
+
+def handle_product_choice(from_number, text, session, product_data):
+    choice = text.strip()
+    
+    # Buscamos la elección del cliente en nuestro catálogo cargado
+    product_info = CATALOGO_PRODUCTOS.get(choice)
+    
+    if product_info and product_info.get('product_id'):
+        # Si encontramos el producto, obtenemos su ID y reiniciamos el flujo de venta
+        # para ese producto específico.
+        product_id = product_info.get('product_id')
+        user_name = session.get('user_name', 'Usuario')
+
+        # Usamos el product_id como "palabra clave" para que handle_initial_message lo encuentre
+        handle_initial_message(from_number, user_name, product_id)
+    else:
+        send_text_message(from_number, "Opción no válida. Por favor, elige un número del catálogo.")
 
 # ==============================================================================
 # 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA - REFACTORIZADO)
@@ -652,6 +701,7 @@ STATE_HANDLERS = {
     "awaiting_shalom_payment": handle_payment_received,
     "awaiting_delivery_confirmation_lima": handle_delivery_confirmation_lima,
     "awaiting_menu_choice": handle_menu_choice,
+    "awaiting_product_choice": handle_product_choice,
 }
 
 def handle_sales_flow(from_number, text, session):
