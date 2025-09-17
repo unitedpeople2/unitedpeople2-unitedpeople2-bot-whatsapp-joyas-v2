@@ -409,12 +409,14 @@ def handle_initial_message(from_number, user_name, text):
 
     if MENU_PRINCIPAL:
         welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
-        options = MENU_PRINCIPAL.get('opciones', {})
         
-        # --- LÓGICA DE BOTONES AÑADIDA ---
-        botones = [{'id': key, 'title': value} for key, value in sorted(options.items())]
+        # --- LÓGICA DE BOTONES CON EMOJIS ---
+        botones = [
+            {'id': '1', 'title': '🛍️ Ver Colección'},
+            {'id': '2', 'title': '❓ Preguntas'}
+        ]
         send_interactive_message(from_number, welcome_message, botones)
-        # ---------------------------------
+        # ------------------------------------
         
         save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
     else:
@@ -423,12 +425,13 @@ def handle_initial_message(from_number, user_name, text):
 
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
-
+    
     # El usuario eligió ver el catálogo
     if choice == '1':
         if CATALOGO_PRODUCTOS:
             mensaje = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
-            botones = [{'id': key, 'title': value.get('nombre', '')} for key, value in sorted(CATALOGO_PRODUCTOS.items())]
+            # Creamos botones para cada producto en el catálogo
+            botones = [{'id': key, 'title': f"💎 {value.get('nombre', '')[:17]}"} for key, value in sorted(CATALOGO_PRODUCTOS.items())]
             send_interactive_message(from_number, mensaje, botones)
             save_session(from_number, {"state": "awaiting_product_choice"})
         else:
@@ -438,8 +441,8 @@ def handle_menu_choice(from_number, text, session, product_data):
     elif choice == '2':
         if MENU_FAQ:
             mensaje = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
-            # Acortamos el texto de la pregunta para que quepa en el botón (límite de 20 caracteres)
-            botones = [{'id': key, 'title': value.get('pregunta', '')[:20]} for key, value in sorted(MENU_FAQ.items())]
+            # Creamos botones para cada pregunta frecuente
+            botones = [{'id': key, 'title': f"✨ {value.get('pregunta', '')[:18]}"} for key, value in sorted(MENU_FAQ.items())]
             send_interactive_message(from_number, mensaje, botones)
             save_session(from_number, {"state": "awaiting_faq_choice"})
         else:
