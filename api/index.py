@@ -37,6 +37,7 @@ PALABRAS_CANCELACION = []
 FAQ_KEYWORD_MAP = {}
 MENU_PRINCIPAL = {}
 CATALOGO_PRODUCTOS = {}
+MENU_FAQ = {}
 
 try:
     # --- CONEXIÓN CON FIREBASE ---
@@ -82,6 +83,14 @@ try:
             CATALOGO_PRODUCTOS = {}
             logger.warning("⚠️ Documento 'catalogo_productos' no encontrado.")
 
+	# --- AÑADIR ESTO PARA CARGAR EL MENÚ DE FAQS ---
+        menu_faq_doc = db.collection('configuracion').document('menu_faq').get()
+        if menu_faq_doc.exists:
+            MENU_FAQ = menu_faq_doc.to_dict()
+            logger.info("✅ Menú de FAQs cargado.")
+        else:
+            MENU_FAQ = {}
+            logger.warning("⚠️ Documento 'menu_faq' no encontrado.")
 
         # --- AÑADIDO PARA GOOGLE SHEETS ---
         creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
@@ -378,24 +387,24 @@ def handle_initial_message(from_number, user_name, text):
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
     if choice == '1':
-        # --- NUEVA LÓGICA ---
-        # Ahora mostramos el menú de productos que cargamos desde Firebase
         if CATALOGO_PRODUCTOS:
             mensaje_catalogo = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
-            # Formateamos el catálogo para que se vea bien
             catalogo_texto = "\n".join([f"{key}️⃣ {value.get('nombre', '')}" for key, value in sorted(CATALOGO_PRODUCTOS.items())])
-            
             send_text_message(from_number, f"{mensaje_catalogo}\n\n{catalogo_texto}")
-            
-            # Guardamos el nuevo estado, esperando que el cliente elija un producto
             save_session(from_number, {"state": "awaiting_product_choice"})
         else:
             send_text_message(from_number, "Lo siento, parece que no pude cargar el catálogo en este momento. Inténtalo más tarde.")
-        # --------------------
     elif choice == '2':
-        faq_intro = FAQ_RESPONSES.get('intro_faq', '¡Claro! Estas son nuestras preguntas más comunes. También puedes escribir tu pregunta directamente.')
-        send_text_message(from_number, faq_intro)
-        delete_session(from_number)
+        # --- NUEVA LÓGICA PARA MENÚ DE FAQS ---
+        if MENU_FAQ:
+            mensaje_faq = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
+            faq_texto = "\n".join([f"{key}️⃣ {value.get('pregunta', '')}" for key, value in sorted(MENU_FAQ.items())])
+            send_text_message(from_number, f"{mensaje_faq}\n\n{faq_texto}")
+            save_session(from_number, {"state": "awaiting_faq_choice"})
+        else:
+            send_text_message(from_number, "Lo siento, no pude cargar las preguntas frecuentes. ¿Podrías escribir tu duda directamente?")
+            delete_session(from_number)
+        # ------------------------------------
     else:
         send_text_message(from_number, "Por favor, responde con el número de la opción (ej: 1).")
 
@@ -415,6 +424,26 @@ def handle_product_choice(from_number, text, session, product_data):
         handle_initial_message(from_number, user_name, product_id)
     else:
         send_text_message(from_number, "Opción no válida. Por favor, elige un número del catálogo.")
+
+def handle_faq_choice(from_number, text, session, product_data):
+    choice = text.strip()
+    
+    # Buscamos la elección del cliente en nuestro menú de FAQs
+    faq_info = MENU_FAQ.get(choice)
+    
+    if faq_info and faq_info.get('clave_respuesta'):
+        # Si encontramos la pregunta, obtenemos su clave de respuesta
+        clave_respuesta = faq_info.get('clave_respuesta')
+        
+        # Usamos la clave para buscar la respuesta completa en FAQ_RESPONSES
+        respuesta_final = FAQ_RESPONSES.get(clave_respuesta, "Lo siento, no encontré una respuesta para esa pregunta.")
+        
+        send_text_message(from_number, respuesta_final)
+        
+        # Borramos la sesión para que el usuario pueda hacer otra cosa
+        delete_session(from_number)
+    else:
+        send_text_message(from_number, "Opción no válida. Por favor, elige un número del menú de preguntas.")
 
 # ==============================================================================
 # 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA - REFACTORIZADO)
@@ -702,6 +731,7 @@ STATE_HANDLERS = {
     "awaiting_delivery_confirmation_lima": handle_delivery_confirmation_lima,
     "awaiting_menu_choice": handle_menu_choice,
     "awaiting_product_choice": handle_product_choice,
+    "awaiting_faq_choice": handle_faq_choice,
 }
 
 def handle_sales_flow(from_number, text, session):
