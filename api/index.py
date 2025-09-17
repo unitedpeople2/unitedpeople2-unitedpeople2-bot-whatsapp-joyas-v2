@@ -237,6 +237,7 @@ def get_delivery_day_message():
 
 def guardar_pedido_en_sheet(sale_data):
     try:
+        # --- Esta parte inicial se mantiene igual ---
         creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
         sheet_name = os.environ.get('GOOGLE_SHEET_NAME')
         if not creds_json_str or not sheet_name:
@@ -260,9 +261,20 @@ def guardar_pedido_en_sheet(sale_data):
             sale_data.get('detalles_cliente', 'N/A'),
             sale_data.get('cliente_id', 'N/A')
         ]
-        worksheet.append_row(nueva_fila)
-        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado.")
+        
+        # --- AQUÍ ESTÁ EL CAMBIO ---
+
+        # 1. Se eliminó la línea antigua:
+        # worksheet.append_row(nueva_fila)
+
+        # 2. Se agregaron estas líneas nuevas:
+        list_of_values = worksheet.get_all_values()
+        next_row_index = len(list_of_values) + 1
+        worksheet.insert_row(nueva_fila, next_row_index)
+
+        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado en la fila {next_row_index}.")
         return True
+        
     except Exception as e:
         logger.error(f"[Sheets] ERROR INESPERADO: {e}")
         return False
