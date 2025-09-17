@@ -22,12 +22,15 @@ logging.basicConfig(level=logging.INFO)
 logger = getLogger(__name__)
 
 # ==========================================================
-# INICIALIZACIÓN DE FIREBASE Y REGLAS DE NEGOCIO
+# 1. INICIALIZACIÓN DE FIREBASE Y REGLAS DE NEGOCIO
 # ==========================================================
 db = None
 BUSINESS_RULES = {}
 FAQ_RESPONSES = {}
 BUSINESS_DATA = {}
+PALABRAS_CANCELACION = []
+FAQ_KEYWORD_MAP = {}
+
 try:
     service_account_info_str = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
     if service_account_info_str:
@@ -38,26 +41,35 @@ try:
         db = firestore.client()
         logger.info("✅ Conexión con Firebase establecida correctamente.")
 
+        # Carga de reglas de envío
         rules_doc = db.collection('configuracion').document('reglas_envio').get()
         if rules_doc.exists:
             BUSINESS_RULES = rules_doc.to_dict()
             logger.info("✅ Reglas del negocio cargadas desde Firestore.")
-        else:
-            logger.error("❌ Documento de reglas de envío no encontrado en Firestore.")
 
+        # Carga de respuestas FAQ
         faq_doc = db.collection('configuracion').document('respuestas_faq').get()
         if faq_doc.exists:
             FAQ_RESPONSES = faq_doc.to_dict()
             logger.info("✅ Respuestas FAQ cargadas desde Firestore.")
-        else:
-            logger.error("❌ Documento de respuestas_faq no encontrado en Firestore.")
         
+        # Carga de datos del negocio
         business_doc = db.collection('configuracion').document('datos_negocio').get()
         if business_doc.exists:
             BUSINESS_DATA = business_doc.to_dict()
             logger.info("✅ Datos del negocio cargados desde Firestore.")
+
+        # Carga de la configuración general (cancelación y mapa de FAQs)
+        config_doc = db.collection('configuracion').document('configuracion_general').get()
+        if config_doc.exists:
+            config_data = config_doc.to_dict()
+            PALABRAS_CANCELACION = config_data.get('palabras_cancelacion', ['cancelar'])
+            FAQ_KEYWORD_MAP = config_data.get('faq_keyword_map', {})
+            logger.info("✅ Configuración general (cancelación y FAQs) cargada desde Firestore.")
         else:
-            logger.error("❌ Documento de datos_negocio no encontrado en Firestore.")
+            logger.warning("⚠️ Documento 'configuracion_general' no encontrado. Usando valores de respaldo.")
+            PALABRAS_CANCELACION = ['cancelar', 'no gracias']
+            FAQ_KEYWORD_MAP = {}
 
     else:
         logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
@@ -80,20 +92,7 @@ TITULAR_YAPE = BUSINESS_DATA.get('titular_yape', 'TITULAR_NO_CONFIGURADO')
 YAPE_NUMERO = BUSINESS_DATA.get('yape_numero', 'YAPE_NO_CONFIGURADO')
 
 KEYWORDS_GIRASOL = ["girasol", "radiant", "precio", "cambia de color"]
-PALABRAS_CANCELACION = ["cancelar", "cancelo", "ya no quiero", "ya no", "mejor no", "detener", "no gracias"]
 
-FAQ_KEYWORD_MAP = {
-    'precio': ['precio', 'valor', 'costo'],
-    'envio': ['envío', 'envio', 'delivery', 'mandan', 'entrega', 'cuesta el envío'],
-    'pago': ['pago', 'métodos de pago', 'contraentrega', 'contra entrega', 'yape', 'plin'],
-    'tienda': ['tienda', 'local', 'ubicación', 'ubicacion', 'dirección', 'direccion'],
-    'transferencia': ['transferencia', 'banco', 'bcp', 'interbank', 'cuenta', 'transferir'],
-    'material': ['material', 'acero', 'alergia', 'hipoalergenico'],
-    'cuidados': ['mojar', 'agua', 'oxida', 'negro', 'cuidar', 'limpiar', 'cuidados'],
-    'garantia': ['garantía', 'garantia', 'falla', 'defectuoso', 'roto'],
-    'cambios_devoluciones': ['cambio', 'cambiar', 'devolución', 'devoluciones', 'devuelvo'],
-    'stock': ['stock', 'disponible', 'tienen', 'hay', 'unidades']
-}
 # ==============================================================================
 # 3. FUNCIONES DE COMUNICACIÓN CON WHATSAPP
 # ==============================================================================
