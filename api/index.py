@@ -426,24 +426,24 @@ def handle_initial_message(from_number, user_name, text):
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
     
-    # El usuario eligió ver el catálogo
+    # El usuario eligió ver el catálogo -> RESPUESTA DE TEXTO
     if choice == '1':
         if CATALOGO_PRODUCTOS:
-            mensaje = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
-            # Creamos botones para cada producto en el catálogo
-            botones = [{'id': key, 'title': f"💎 {value.get('nombre', '')[:17]}"} for key, value in sorted(CATALOGO_PRODUCTOS.items())]
-            send_interactive_message(from_number, mensaje, botones)
+            mensaje_catalogo = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
+            catalogo_texto = "\n".join([f"{key}️⃣ {value.get('nombre', '')}" for key, value in sorted(CATALOGO_PRODUCTOS.items())])
+            
+            send_text_message(from_number, f"{mensaje_catalogo}\n\n{catalogo_texto}")
             save_session(from_number, {"state": "awaiting_product_choice"})
         else:
             send_text_message(from_number, "Lo siento, no pude cargar el catálogo en este momento.")
 
-    # El usuario eligió ver las FAQs
+    # El usuario eligió ver las FAQs -> RESPUESTA DE TEXTO
     elif choice == '2':
         if MENU_FAQ:
-            mensaje = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
-            # Creamos botones para cada pregunta frecuente
-            botones = [{'id': key, 'title': f"✨ {value.get('pregunta', '')[:18]}"} for key, value in sorted(MENU_FAQ.items())]
-            send_interactive_message(from_number, mensaje, botones)
+            mensaje_faq = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
+            faq_texto = "\n".join([f"{key}️⃣ {value.get('pregunta', '')}" for key, value in sorted(MENU_FAQ.items())])
+
+            send_text_message(from_number, f"{mensaje_faq}\n\n{faq_texto}")
             save_session(from_number, {"state": "awaiting_faq_choice"})
         else:
             send_text_message(from_number, "Lo siento, no pude cargar las preguntas frecuentes.")
