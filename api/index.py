@@ -261,10 +261,11 @@ def guardar_pedido_en_sheet(sale_data):
             sale_data.get('cliente_id', 'N/A')
         ]
         
-        # Simplemente usa append_row, es más simple y directo
-	worksheet_pedidos.append_row(nueva_fila)
+        # Corrección: La línea siguiente debe estar DENTRO del try.
+        worksheet_pedidos.append_row(nueva_fila)
 
-        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado en la fila {next_row_index}.")
+        # Corrección: Eliminamos la variable 'next_row_index' que ya no existe.
+        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado exitosamente.")
         return True
         
     except Exception as e:
