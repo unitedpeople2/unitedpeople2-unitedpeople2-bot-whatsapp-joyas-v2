@@ -22,6 +22,8 @@ from datetime import datetime, timezone, timedelta
 logging.basicConfig(level=logging.INFO)
 logger = getLogger(__name__)
 
+app = Flask(__name__)
+
 # ==========================================================
 # 1. INICIALIZACIÓN DE SERVICIOS Y VARIABLES GLOBALES
 # ==========================================================
