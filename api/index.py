@@ -307,6 +307,37 @@ def get_last_question(state):
     return questions.get(state)
 
 # ==============================================================================
+# 5.1. FUNCIÓN CENTRALIZADA DE FAQ (NUEVA SECCIÓN)
+# ==============================================================================
+def check_and_handle_faq(from_number, text, session):
+    """
+    Revisa si el texto coincide con una FAQ. Si es así, envía la respuesta y 
+    devuelve True. De lo contrario, devuelve False.
+    """
+    text_lower = text.lower()
+    for key, keywords in FAQ_KEYWORD_MAP.items():
+        if any(keyword in text_lower for keyword in keywords):
+            response_text = FAQ_RESPONSES.get(key)
+            
+            # Lógica "inteligente": si hay una sesión, personaliza la respuesta
+            if session:
+                if key == 'precio' and session.get('product_name'):
+                    response_text = f"¡Claro! El precio de tu pedido (*{session['product_name']}*) es de *S/ {session['product_price']:.2f}*, con envío gratis. 🚚"
+                elif key == 'stock' and session.get('product_name'):
+                    response_text = f"¡Sí, claro! Aún tenemos unidades del *{session['product_name']}*. ✨ ¿Iniciamos tu pedido?"
+            
+            if response_text:
+                send_text_message(from_number, response_text)
+                
+                # Si el usuario está en medio de un flujo, recuérdale la última pregunta para no perderlo
+                if session and (last_question := get_last_question(session.get('state'))):
+                    time.sleep(1)
+                    send_text_message(from_number, f"¡Espero haber aclarado tu duda! 😊 Continuando...\n\n{last_question}")
+                
+                return True # ¡Importante! Indicamos que el mensaje fue manejado.
+    return False # No se encontró ninguna FAQ
+
+# ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
 def handle_initial_message(from_number, user_name, text):
@@ -320,10 +351,12 @@ def handle_initial_message(from_number, user_name, text):
         send_text_message(from_number, msg)
         save_session(from_number, {"state": "awaiting_occasion_response", "product_id": product_id, "product_name": nombre_producto, "product_price": float(precio), "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False})
         return
-    text_lower = text.lower()
-    for key, keywords in FAQ_KEYWORD_MAP.items():
-        if any(keyword in text_lower for keyword in keywords):
-            if response_text := FAQ_RESPONSES.get(key): send_text_message(from_number, response_text); return
+   
+    # Llamamos a nuestra nueva función centralizada
+    if check_and_handle_faq(from_number, text, session=None):
+        return # La función ya se encargó de responder
+
+    # Este es el mensaje que se envía si el texto no es ni un producto ni una FAQ
     send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*. Si deseas información sobre nuestro *Collar Mágico Girasol Radiant*, solo pregunta por él. 😊")
 
 # ==============================================================================
@@ -620,7 +653,10 @@ STATE_HANDLERS = {
 
 def handle_sales_flow(from_number, text, session):
     # (Aquí puedes añadir la lógica de FAQ si la centralizas como sugerí)
-    
+    # ---- AÑADE ESTAS 2 LÍNEAS AL INICIO ----
+    if check_and_handle_faq(from_number, text, session):
+        return # Si fue una FAQ, no hacemos nada más.
+    # -----------------------------------------
     # Si el usuario pregunta por el producto de nuevo, reinicia el flujo.
     if any(keyword in text.lower() for keyword in KEYWORDS_GIRASOL) and session.get('state') not in ['awaiting_occasion_response', 'awaiting_purchase_decision']:
         logger.info(f"Usuario {from_number} reiniciando flujo.")
