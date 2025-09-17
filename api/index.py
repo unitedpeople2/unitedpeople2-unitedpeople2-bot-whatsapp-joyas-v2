@@ -30,6 +30,7 @@ FAQ_RESPONSES = {}
 BUSINESS_DATA = {}
 PALABRAS_CANCELACION = []
 FAQ_KEYWORD_MAP = {}
+MESSAGE_TEMPLATES = {} # Variable para las nuevas plantillas
 
 try:
     service_account_info_str = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
@@ -70,13 +71,19 @@ try:
             logger.warning("⚠️ Documento 'configuracion_general' no encontrado. Usando valores de respaldo.")
             PALABRAS_CANCELACION = ['cancelar', 'no gracias']
             FAQ_KEYWORD_MAP = {}
+            
+        # Carga de plantillas de mensajes
+        templates_doc = db.collection('configuracion').document('plantillas_mensajes').get()
+        if templates_doc.exists:
+            MESSAGE_TEMPLATES = templates_doc.to_dict()
+            logger.info("✅ Plantillas de mensajes cargadas desde Firestore.")
+        else:
+            logger.warning("⚠️ Documento 'plantillas_mensajes' no encontrado.")
 
     else:
         logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
 except Exception as e:
     logger.error(f"❌ Error crítico inicializando Firebase: {e}")
-
-app = Flask(__name__)
 
 # ==========================================================
 # 2. CONFIGURACIÓN DEL NEGOCIO Y VARIABLES GLOBALES
@@ -285,7 +292,7 @@ def find_key_in_sheet(cliente_id):
             return clave
         else:
             logger.warning(f"[Sheets] No se encontró la fila para el cliente {cliente_id}.")
-            return None
+            return None	
     except Exception as e:
         logger.error(f"[Sheets] ERROR buscando la clave: {e}")
         return None
@@ -424,9 +431,8 @@ def handle_sales_flow(from_number, text, session):
             session['distrito'] = distrito
             if status == 'CON_COBERTURA':
                 session.update({"state": "awaiting_delivery_details", "tipo_envio": "Lima Contra Entrega", "metodo_pago": "Contra Entrega (Efectivo/Yape/Plin)"}); save_session(from_number, session)
-                mensaje = (f"¡Excelente! Tenemos cobertura en *{distrito}*. 🏙️\n\n"
-                           "Para registrar tu pedido, envíame en *un solo mensaje* tu *Nombre Completo, Dirección exacta* y una *Referencia*.\n\n"
-                           "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
+                	plantilla = MESSAGE_TEMPLATES.get('solicitud_datos_delivery', 'Error: Plantilla no encontrada.')
+mensaje = plantilla.format(distrito=distrito)
                 send_text_message(from_number, mensaje)
             elif status == 'SIN_COBERTURA':
                 session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"}); save_session(from_number, session)
@@ -460,9 +466,8 @@ def handle_sales_flow(from_number, text, session):
     elif current_state == 'awaiting_shalom_experience':
         if 'si' in text.lower() or 'sí' in text.lower():
             session['state'] = 'awaiting_shalom_details'; save_session(from_number, session)
-            mensaje = ("¡Excelente! Entonces ya conoces el proceso. ✅\n\n"
-                       "Para terminar, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección exacta de la agencia Shalom* donde recogerás. ✍🏽\n\n"
-                       "📝 *Ej: Juan Quispe, 45678901, Av. Pardo 123, Miraflores.*")
+            plantilla_shalom = MESSAGE_TEMPLATES.get('solicitud_datos_shalom', 'Error: Plantilla no encontrada.')
+mensaje = f"¡Excelente! Entonces ya conoces el proceso. ✅\n\n{plantilla_shalom}"
             send_text_message(from_number, mensaje)
         else:
             session['state'] = 'awaiting_shalom_agency_knowledge'; save_session(from_number, session)
@@ -473,8 +478,8 @@ def handle_sales_flow(from_number, text, session):
     elif current_state == 'awaiting_shalom_agency_knowledge':
         if 'si' in text.lower() or 'sí' in text.lower():
             session['state'] = 'awaiting_shalom_details'; save_session(from_number, session)
-            mensaje = ("¡Perfecto! Por favor, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽\n\n"
-                       "📝 *Ej: Carlos Ruiz, 87654321, Jr. Gamarra 456, Trujillo.*")
+            plantilla_shalom = MESSAGE_TEMPLATES.get('solicitud_datos_shalom', 'Error: Plantilla no encontrada.')
+mensaje = f"¡Perfecto! {plantilla_shalom}"
             send_text_message(from_number, mensaje)
         else:
             delete_session(from_number); send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. ¡Gracias por tu interés!")
