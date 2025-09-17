@@ -391,6 +391,36 @@ def check_and_handle_faq(from_number, text, session):
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
+
+def handle_initial_message(from_number, user_name, text):
+    product_id, product_data = find_product_by_keywords(text)
+    if product_data:
+        nombre_producto, desc_corta, precio, url_img = product_data.get('nombre', ''), product_data.get('descripcion_corta', ''), product_data.get('precio_base', 0), product_data.get('imagenes', {}).get('principal')
+        if url_img: send_image_message(from_number, url_img); time.sleep(1)
+        msg = (f"¡Hola {user_name}! 🌞 El *{nombre_producto}* {desc_corta}\n\n"
+               f"Por campaña, llévatelo a *S/ {precio:.2f}* (¡incluye envío gratis a todo el Perú! 🚚).\n\n"
+               "Cuéntame, ¿es un tesoro para ti o un regalo para alguien especial?")
+        send_text_message(from_number, msg)
+        save_session(from_number, {"state": "awaiting_occasion_response", "product_id": product_id, "product_name": nombre_producto, "product_price": float(precio), "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False})
+        return
+   
+    if check_and_handle_faq(from_number, text, session=None):
+        return
+
+    if MENU_PRINCIPAL:
+        welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
+        options = MENU_PRINCIPAL.get('opciones', {})
+        
+        # --- LÓGICA DE BOTONES AÑADIDA ---
+        botones = [{'id': key, 'title': value} for key, value in sorted(options.items())]
+        send_interactive_message(from_number, welcome_message, botones)
+        # ---------------------------------
+        
+        save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
+    else:
+        send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*.")
+
+
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
 
