@@ -429,11 +429,13 @@ def handle_sales_flow(from_number, text, session):
         distrito, status = normalize_and_check_district(text)
         if status != 'NO_ENCONTRADO':
             session['distrito'] = distrito
+            # ...
             if status == 'CON_COBERTURA':
                 session.update({"state": "awaiting_delivery_details", "tipo_envio": "Lima Contra Entrega", "metodo_pago": "Contra Entrega (Efectivo/Yape/Plin)"}); save_session(from_number, session)
-                	plantilla = MESSAGE_TEMPLATES.get('solicitud_datos_delivery', 'Error: Plantilla no encontrada.')
-mensaje = plantilla.format(distrito=distrito)
+                plantilla = MESSAGE_TEMPLATES.get('solicitud_datos_delivery', 'Error: Plantilla no encontrada.')
+                mensaje = plantilla.format(distrito=distrito)
                 send_text_message(from_number, mensaje)
+# ...
             elif status == 'SIN_COBERTURA':
                 session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"}); save_session(from_number, session)
                 adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
@@ -463,24 +465,28 @@ mensaje = plantilla.format(distrito=distrito)
         else:
             delete_session(from_number); send_text_message(from_number, "Comprendo. Si cambias de opinión, aquí estaré. ¡Gracias! 😊")
 
+    # ...
     elif current_state == 'awaiting_shalom_experience':
         if 'si' in text.lower() or 'sí' in text.lower():
             session['state'] = 'awaiting_shalom_details'; save_session(from_number, session)
             plantilla_shalom = MESSAGE_TEMPLATES.get('solicitud_datos_shalom', 'Error: Plantilla no encontrada.')
-mensaje = f"¡Excelente! Entonces ya conoces el proceso. ✅\n\n{plantilla_shalom}"
+            mensaje = f"¡Excelente! Entonces ya conoces el proceso. ✅\n\n{plantilla_shalom}"
             send_text_message(from_number, mensaje)
+# ...
         else:
             session['state'] = 'awaiting_shalom_agency_knowledge'; save_session(from_number, session)
             mensaje = ("¡No te preocupes! Te explico: Shalom es una empresa de envíos. Te damos un código de seguimiento, y cuando tu pedido llega a la agencia, nos yapeas el saldo restante. Apenas confirmemos, te damos la clave secreta para el recojo. ¡Es 100% seguro! 🔒\n\n"
                        "¿Conoces la dirección de alguna agencia Shalom cerca a ti? (Sí/No)")
             send_text_message(from_number, mensaje)
             
+    # ...
     elif current_state == 'awaiting_shalom_agency_knowledge':
         if 'si' in text.lower() or 'sí' in text.lower():
             session['state'] = 'awaiting_shalom_details'; save_session(from_number, session)
             plantilla_shalom = MESSAGE_TEMPLATES.get('solicitud_datos_shalom', 'Error: Plantilla no encontrada.')
-mensaje = f"¡Perfecto! {plantilla_shalom}"
+            mensaje = f"¡Perfecto! {plantilla_shalom}"
             send_text_message(from_number, mensaje)
+# ...
         else:
             delete_session(from_number); send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. ¡Gracias por tu interés!")
             
