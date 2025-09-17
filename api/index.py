@@ -489,7 +489,7 @@ def handle_faq_choice(from_number, text, session, product_data):
         send_text_message(from_number, "Opción no válida. Por favor, elige un número del menú de preguntas.")
 
 # ==============================================================================
-# 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA - REFACTORIZADO)
+# 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA CON BOTONES)
 # ==============================================================================
 def handle_occasion_response(from_number, text, session, product_data):
     url_imagen_empaque = product_data.get('imagenes', {}).get('empaque')
@@ -509,14 +509,20 @@ def handle_occasion_response(from_number, text, session, product_data):
     time.sleep(1.5)
     
     mensaje_persuasion_2 = (f"Para tu total seguridad, somos Daaqui Joyas, un negocio formal con *RUC {RUC_EMPRESA}*. ¡Tu compra es 100% segura! 🇵🇪\n\n"
-                            "¿Te gustaría coordinar tu pedido ahora para asegurar el tuyo? (Sí/No)")
-    send_text_message(from_number, mensaje_persuasion_2)
+                            "¿Te gustaría coordinar tu pedido ahora para asegurar el tuyo?")
+    
+    # --- CAMBIO A BOTONES ---
+    botones = [
+        {'id': 'si_coordinar', 'title': '✅ Sí, coordinar ahora'},
+        {'id': 'no_gracias', 'title': 'No, gracias'}
+    ]
+    send_interactive_message(from_number, mensaje_persuasion_2, botones)
     
     session['state'] = 'awaiting_purchase_decision'
     save_session(from_number, session)
 
 def handle_purchase_decision(from_number, text, session, product_data):
-    if 'si' in text.lower() or 'sí' in text.lower():
+    if text == 'si_coordinar':
         url_imagen_upsell = product_data.get('imagenes', {}).get('upsell')
         if url_imagen_upsell:
             send_image_message(from_number, url_imagen_upsell)
@@ -530,10 +536,12 @@ def handle_purchase_decision(from_number, text, session, product_data):
         send_text_message(from_number, upsell_message_1)
         time.sleep(1.5)
         
-        upsell_message_2 = ("Para continuar, por favor, respóndeme:\n"
-                            "👉🏽 Escribe *oferta* para ampliar tu pedido.\n"
-                            "👉🏽 Escribe *continuar* para llevar solo un collar.")
-        send_text_message(from_number, upsell_message_2)
+        # --- CAMBIO A BOTONES ---
+        botones = [
+            {'id': 'oferta', 'title': '🔥 Sí, quiero la oferta'},
+            {'id': 'continuar', 'title': 'Continuar con uno'}
+        ]
+        send_interactive_message(from_number, "¿Qué decides?", botones)
         
         session['state'] = 'awaiting_upsell_decision'
         save_session(from_number, session)
@@ -542,38 +550,55 @@ def handle_purchase_decision(from_number, text, session, product_data):
         send_text_message(from_number, "Entendido. Si cambias de opinión, aquí estaré. ¡Que tengas un buen día! 😊")
 
 def handle_upsell_decision(from_number, text, session, product_data):
-    if 'oferta' in text.lower():
+    if text == 'oferta':
         session.update({"product_name": "Oferta 2x Collares Mágicos + Cadenas", "product_price": 99.00, "is_upsell": True})
         send_text_message(from_number, "¡Genial! Has elegido la oferta. ✨")
-    else:
+    else: # Asumimos 'continuar' o cualquier otra respuesta como continuar con uno
         session['is_upsell'] = False
         send_text_message(from_number, "¡Perfecto! Continuamos con tu collar individual. ✨")
     
+    time.sleep(1)
+    # --- CAMBIO A BOTONES (CON TEXTO PERSUASIVO) ---
+    mensaje = "¡Perfecto! Tu joya está casi en camino. Para coordinar tu envío gratis, indícame si el envío es para:"
+    botones = [
+        {'id': 'lima', 'title': '📍 Lima'},
+        {'id': 'provincia', 'title': '🚚 Provincia'}
+    ]
+    send_interactive_message(from_number, mensaje, botones)
+
     session['state'] = 'awaiting_location'
     save_session(from_number, session)
-    time.sleep(1)
-    send_text_message(from_number, "Para empezar a coordinar el envío, por favor, dime: ¿eres de *Lima* o de *provincia*?")
 
 def handle_location(from_number, text, session, product_data):
-    if 'lima' in text.lower():
+    if text == 'lima':
         session.update({"state": "awaiting_lima_district", "provincia": "Lima"})
         save_session(from_number, session)
         send_text_message(from_number, "¡Genial! ✨ Para saber qué tipo de envío te corresponde, por favor, dime: ¿en qué distrito te encuentras? 📍")
-    elif 'provincia' in text.lower():
+    elif text == 'provincia':
         session['state'] = 'awaiting_province_district'
         save_session(from_number, session)
         send_text_message(from_number, "¡Entendido! Para continuar, indícame tu *provincia y distrito*. ✍🏽\n\n📝 *Ej: Arequipa, Arequipa*")
     else:
-        send_text_message(from_number, "No te entendí bien. Por favor, dime si tu envío es para *Lima* o para *provincia*.")
+        # Re-enviar la pregunta si la respuesta no es un botón
+        mensaje = "Por favor, elige una de las dos opciones:"
+        botones = [{'id': 'lima', 'title': '📍 Lima'}, {'id': 'provincia', 'title': '🚚 Provincia'}]
+        send_interactive_message(from_number, mensaje, botones)
 
 def handle_province_district(from_number, text, session, product_data):
     provincia, distrito = parse_province_district(text)
-    session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
-    save_session(from_number, session)
+    session.update({"tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
-               "¿Estás de acuerdo? (Sí/No)")
-    send_text_message(from_number, mensaje)
+               "¿Estás de acuerdo?")
+    
+    # --- CAMBIO A BOTONES ---
+    botones = [
+        {'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'},
+        {'id': 'no_acuerdo', 'title': 'No en este momento'}
+    ]
+    send_interactive_message(from_number, mensaje, botones)
+    session['state'] = 'awaiting_shalom_agreement'
+    save_session(from_number, session)
 
 def handle_lima_district(from_number, text, session, product_data):
     distrito, status = normalize_and_check_district(text)
@@ -587,18 +612,20 @@ def handle_lima_district(from_number, text, session, product_data):
                        "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
             send_text_message(from_number, mensaje)
         elif status == 'SIN_COBERTURA':
-            session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"})
-            save_session(from_number, session)
+            session.update({"tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"})
             adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
             mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
-                       "¿Estás de acuerdo? (Sí/No)")
-            send_text_message(from_number, mensaje)
+                       "¿Estás de acuerdo?")
+            # --- CAMBIO A BOTONES ---
+            botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
+            send_interactive_message(from_number, mensaje, botones)
+            session['state'] = 'awaiting_shalom_agreement'
+            save_session(from_number, session)
     else:
         send_text_message(from_number, "No pude reconocer ese distrito. Por favor, intenta escribirlo de nuevo.")
 
 def handle_customer_details(from_number, text, session, product_data):
-    session.update({"state": "awaiting_final_confirmation", "detalles_cliente": text})
-    save_session(from_number, session)
+    session.update({"detalles_cliente": text})
     resumen = ("¡Gracias! Revisa que todo esté correcto:\n\n"
                f"*Resumen del Pedido*\n"
                f"💎 {session.get('product_name', '')}\n"
@@ -607,57 +634,78 @@ def handle_customer_details(from_number, text, session, product_data):
                f"💳 Pago: {session.get('metodo_pago', '')}\n\n"
                f"*Datos de Entrega*\n"
                f"{session.get('detalles_cliente', '')}\n\n"
-               "¿Confirmas que todo es correcto? (Sí/No)")
-    send_text_message(from_number, resumen)
+               "¿Confirmas que todo es correcto?")
+    # --- CAMBIO A BOTONES ---
+    botones = [
+        {'id': 'si_correcto', 'title': '✅ Sí, todo correcto'},
+        {'id': 'corregir', 'title': '📝 Corregir datos'}
+    ]
+    send_interactive_message(from_number, resumen, botones)
+    session['state'] = 'awaiting_final_confirmation'
+    save_session(from_number, session)
 
 def handle_shalom_agreement(from_number, text, session, product_data):
-    if 'si' in text.lower() or 'sí' in text.lower():
+    if text == 'si_acuerdo':
         session['state'] = 'awaiting_shalom_experience'
         save_session(from_number, session)
-        send_text_message(from_number, "¡Genial! Para hacer el proceso más fácil, cuéntame: ¿alguna vez has recogido un pedido en una agencia Shalom? 🙋🏽‍♀️ (Sí/No)")
+        mensaje = "¡Genial! Para hacer el proceso más fácil, cuéntame: ¿alguna vez has recogido un pedido en una agencia Shalom? 🙋🏽‍♀️"
+        # --- CAMBIO A BOTONES ---
+        botones = [
+            {'id': 'si_conozco', 'title': '✅ Sí, ya conozco'},
+            {'id': 'no_conozco', 'title': 'No, explícame más'}
+        ]
+        send_interactive_message(from_number, mensaje, botones)
     else:
         delete_session(from_number)
         send_text_message(from_number, "Comprendo. Si cambias de opinión, aquí estaré. ¡Gracias! 😊")
 
 def handle_shalom_experience(from_number, text, session, product_data):
-    if 'si' in text.lower() or 'sí' in text.lower():
+    if text == 'si_conozco':
         session['state'] = 'awaiting_shalom_details'
         save_session(from_number, session)
         mensaje = ("¡Excelente! Entonces ya conoces el proceso. ✅\n\n"
                    "Para terminar, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección exacta de la agencia Shalom* donde recogerás. ✍🏽\n\n"
                    "📝 *Ej: Juan Quispe, 45678901, Av. Pardo 123, Miraflores.*")
         send_text_message(from_number, mensaje)
-    else:
+    else: # 'no_conozco'
         session['state'] = 'awaiting_shalom_agency_knowledge'
         save_session(from_number, session)
         mensaje = ("¡No te preocupes! Te explico: Shalom es una empresa de envíos. Te damos un código de seguimiento, y cuando tu pedido llega a la agencia, nos yapeas el saldo restante. Apenas confirmemos, te damos la clave secreta para el recojo. ¡Es 100% seguro! 🔒\n\n"
-                   "¿Conoces la dirección de alguna agencia Shalom cerca a ti? (Sí/No)")
-        send_text_message(from_number, mensaje)
+                   "¿Conoces la dirección de alguna agencia Shalom cerca a ti?")
+        # --- CAMBIO A BOTONES ---
+        botones = [
+            {'id': 'si_se_direccion', 'title': 'Sí, la conozco'},
+            {'id': 'no_se_direccion', 'title': 'No, necesito buscar'}
+        ]
+        send_interactive_message(from_number, mensaje, botones)
 
 def handle_shalom_agency_knowledge(from_number, text, session, product_data):
-    if 'si' in text.lower() or 'sí' in text.lower():
+    if text == 'si_se_direccion':
         session['state'] = 'awaiting_shalom_details'
         save_session(from_number, session)
         mensaje = ("¡Perfecto! Por favor, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽\n\n"
                    "📝 *Ej: Carlos Ruiz, 87654321, Jr. Gamarra 456, Trujillo.*")
         send_text_message(from_number, mensaje)
-    else:
+    else: # 'no_se_direccion'
         delete_session(from_number)
-        send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. ¡Gracias por tu interés!")
+        send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. Cuando la tengas, puedes iniciar la conversación de nuevo. ¡Gracias por tu interés!")
 
 def handle_final_confirmation(from_number, text, session, product_data):
-    if 'si' in text.lower() or 'sí' in text.lower():
+    if text == 'si_correcto':
         if session.get('tipo_envio') == 'Lima Contra Entrega':
             adelanto = float(BUSINESS_RULES.get('adelanto_lima_delivery', 10))
-            session.update({'adelanto': adelanto, 'state': 'awaiting_lima_payment_agreement'})
-            save_session(from_number, session)
+            session.update({'adelanto': adelanto})
             mensaje = (
                 "¡Perfecto! Tu pedido contra entrega está listo para ser agendado. ✨\n\n"
                 "Nuestras rutas de reparto para mañana 🚚 ya se están llenando y tenemos *cupos limitados* ⚠️. Para asegurar tu espacio y priorizar tu entrega, solo solicitamos un adelanto de *S/ 10.00*.\n\n"
                 "Este pequeño monto confirma tu compromiso y nos permite seguir ofreciendo *envío gratis* a clientes serios como tú. Por supuesto, se descuenta del total.\n\n"
-                "👉 ¿Procedemos para reservar tu lugar? (*Sí/No*)"
+                "👉 ¿Procedemos para reservar tu lugar?"
             )
-            send_text_message(from_number, mensaje)
+            # --- CAMBIO A BOTONES ---
+            botones = [{'id': 'si_proceder', 'title': 'Sí, reservar ahora'}, {'id': 'no_proceder', 'title': 'No, gracias'}]
+            send_interactive_message(from_number, mensaje, botones)
+            session['state'] = 'awaiting_lima_payment_agreement'
+            save_session(from_number, session)
         else: # Shalom
             adelanto = float(BUSINESS_RULES.get('adelanto_shalom', 20))
             session.update({'adelanto': adelanto, 'state': 'awaiting_shalom_payment'})
@@ -668,14 +716,14 @@ def handle_final_confirmation(from_number, text, session, product_data):
                        f"🔒 Tu compra es 100% segura (*RUC {RUC_EMPRESA}*).\n\n"
                        "Una vez realizado, envíame la *captura de pantalla* para validar tu pedido.")
             send_text_message(from_number, mensaje)
-    else:
+    else: # 'corregir'
         previous_state = 'awaiting_delivery_details' if session.get('tipo_envio') == 'Lima Contra Entrega' else 'awaiting_shalom_details'
         session['state'] = previous_state
         save_session(from_number, session)
         send_text_message(from_number, "¡Claro, lo corregimos! 😊 Por favor, envíame nuevamente la información de envío completa en un solo mensaje.")
 
 def handle_lima_payment_agreement(from_number, text, session, product_data):
-    if 'si' in text.lower() or 'sí' in text.lower():
+    if text == 'si_proceder':
         session['state'] = 'awaiting_lima_payment'
         save_session(from_number, session)
         mensaje = (f"¡Genial! Puedes realizar el adelanto de *S/ {session.get('adelanto', 10):.2f}* a:\n\n"
@@ -683,7 +731,7 @@ def handle_lima_payment_agreement(from_number, text, session, product_data):
                    f"👤 *Titular:* {TITULAR_YAPE}\n\n"
                    "Una vez realizado, envíame la *captura de pantalla* para validar.")
         send_text_message(from_number, mensaje)
-    else:
+    else: # 'no_proceder'
         delete_session(from_number)
         send_text_message(from_number, "Entendido. Si cambias de opinión, aquí estaré. ¡Gracias!")
 
@@ -747,7 +795,6 @@ def handle_delivery_confirmation_lima(from_number, text, session, product_data):
         delete_session(from_number)
     else:
         send_text_message(from_number, "Por favor, para asegurar tu pedido, responde con la palabra *CONFIRMO*.")
-
 
 # ------------------------------------------------------------------------------
 # 7.2. Diccionario de Despacho y Función Principal del Flujo
