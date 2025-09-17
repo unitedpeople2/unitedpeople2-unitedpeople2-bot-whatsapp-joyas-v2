@@ -30,7 +30,6 @@ FAQ_RESPONSES = {}
 BUSINESS_DATA = {}
 PALABRAS_CANCELACION = []
 FAQ_KEYWORD_MAP = {}
-MESSAGE_TEMPLATES = {} # Variable para las nuevas plantillas
 
 try:
     service_account_info_str = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
@@ -71,19 +70,13 @@ try:
             logger.warning("⚠️ Documento 'configuracion_general' no encontrado. Usando valores de respaldo.")
             PALABRAS_CANCELACION = ['cancelar', 'no gracias']
             FAQ_KEYWORD_MAP = {}
-            
-        # Carga de plantillas de mensajes
-        templates_doc = db.collection('configuracion').document('plantillas_mensajes').get()
-        if templates_doc.exists:
-            MESSAGE_TEMPLATES = templates_doc.to_dict()
-            logger.info("✅ Plantillas de mensajes cargadas desde Firestore.")
-        else:
-            logger.warning("⚠️ Documento 'plantillas_mensajes' no encontrado.")
 
     else:
         logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
 except Exception as e:
     logger.error(f"❌ Error crítico inicializando Firebase: {e}")
+
+app = Flask(__name__)
 
 # ==========================================================
 # 2. CONFIGURACIÓN DEL NEGOCIO Y VARIABLES GLOBALES
@@ -292,7 +285,7 @@ def find_key_in_sheet(cliente_id):
             return clave
         else:
             logger.warning(f"[Sheets] No se encontró la fila para el cliente {cliente_id}.")
-            return None	
+            return None
     except Exception as e:
         logger.error(f"[Sheets] ERROR buscando la clave: {e}")
         return None
@@ -429,13 +422,12 @@ def handle_sales_flow(from_number, text, session):
         distrito, status = normalize_and_check_district(text)
         if status != 'NO_ENCONTRADO':
             session['distrito'] = distrito
-            # ...
             if status == 'CON_COBERTURA':
                 session.update({"state": "awaiting_delivery_details", "tipo_envio": "Lima Contra Entrega", "metodo_pago": "Contra Entrega (Efectivo/Yape/Plin)"}); save_session(from_number, session)
-                plantilla = MESSAGE_TEMPLATES.get('solicitud_datos_delivery', 'Error: Plantilla no encontrada.')
-                mensaje = plantilla.format(distrito=distrito)
+                mensaje = (f"¡Excelente! Tenemos cobertura en *{distrito}*. 🏙️\n\n"
+                           "Para registrar tu pedido, envíame en *un solo mensaje* tu *Nombre Completo, Dirección exacta* y una *Referencia*.\n\n"
+                           "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
                 send_text_message(from_number, mensaje)
-# ...
             elif status == 'SIN_COBERTURA':
                 session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"}); save_session(from_number, session)
                 adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
@@ -465,28 +457,25 @@ def handle_sales_flow(from_number, text, session):
         else:
             delete_session(from_number); send_text_message(from_number, "Comprendo. Si cambias de opinión, aquí estaré. ¡Gracias! 😊")
 
-    # ...
     elif current_state == 'awaiting_shalom_experience':
         if 'si' in text.lower() or 'sí' in text.lower():
             session['state'] = 'awaiting_shalom_details'; save_session(from_number, session)
-            plantilla_shalom = MESSAGE_TEMPLATES.get('solicitud_datos_shalom', 'Error: Plantilla no encontrada.')
-            mensaje = f"¡Excelente! Entonces ya conoces el proceso. ✅\n\n{plantilla_shalom}"
+            mensaje = ("¡Excelente! Entonces ya conoces el proceso. ✅\n\n"
+                       "Para terminar, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección exacta de la agencia Shalom* donde recogerás. ✍🏽\n\n"
+                       "📝 *Ej: Juan Quispe, 45678901, Av. Pardo 123, Miraflores.*")
             send_text_message(from_number, mensaje)
-# ...
         else:
             session['state'] = 'awaiting_shalom_agency_knowledge'; save_session(from_number, session)
             mensaje = ("¡No te preocupes! Te explico: Shalom es una empresa de envíos. Te damos un código de seguimiento, y cuando tu pedido llega a la agencia, nos yapeas el saldo restante. Apenas confirmemos, te damos la clave secreta para el recojo. ¡Es 100% seguro! 🔒\n\n"
                        "¿Conoces la dirección de alguna agencia Shalom cerca a ti? (Sí/No)")
             send_text_message(from_number, mensaje)
             
-    # ...
     elif current_state == 'awaiting_shalom_agency_knowledge':
         if 'si' in text.lower() or 'sí' in text.lower():
             session['state'] = 'awaiting_shalom_details'; save_session(from_number, session)
-            plantilla_shalom = MESSAGE_TEMPLATES.get('solicitud_datos_shalom', 'Error: Plantilla no encontrada.')
-            mensaje = f"¡Perfecto! {plantilla_shalom}"
+            mensaje = ("¡Perfecto! Por favor, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽\n\n"
+                       "📝 *Ej: Carlos Ruiz, 87654321, Jr. Gamarra 456, Trujillo.*")
             send_text_message(from_number, mensaje)
-# ...
         else:
             delete_session(from_number); send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. ¡Gracias por tu interés!")
             
@@ -614,18 +603,6 @@ def handle_sales_flow(from_number, text, session):
 # ==============================================================================
 # 8. WEBHOOK PRINCIPAL Y PROCESADOR DE MENSAJES
 # ==============================================================================
-# V-- AÑADE ESTE CÓDIGO AQUÍ --V
-@app.route('/')
-def index():
-    # Mensaje para quien visite la URL principal
-    return "¡Hola! Soy el Chatbot de Daaqui Joyas. Estoy funcionando correctamente. 🤖✨"
-
-@app.route('/favicon.ico')
-def favicon():
-    # Responde que no hay contenido para el ícono, evitando el error 404
-    return '', 204
-# ^-- FIN DEL CÓDIGO AÑADIDO --^
-
 @app.route('/api/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
