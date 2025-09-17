@@ -903,4 +903,3 @@ def notify_admin():
     except Exception as e:
         logger.error(f"Error crítico en notify_admin: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
-}
