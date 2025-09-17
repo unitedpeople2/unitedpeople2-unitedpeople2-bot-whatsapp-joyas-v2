@@ -414,7 +414,7 @@ def handle_sales_flow(from_number, text, session):
         provincia, distrito = parse_province_district(text)
         session.update({"state": "awaiting_shalom_agreement", "tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito}); save_session(from_number, session)
         adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-        mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
+        mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia Shalom y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
                    "¿Estás de acuerdo? (Sí/No)")
         send_text_message(from_number, mensaje)
         
