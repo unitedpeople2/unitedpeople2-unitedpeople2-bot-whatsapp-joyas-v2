@@ -655,22 +655,27 @@ STATE_HANDLERS = {
 }
 
 def handle_sales_flow(from_number, text, session):
-    # (Aquí puedes añadir la lógica de FAQ si la centralizas como sugerí)
-    # ---- AÑADE ESTAS 2 LÍNEAS AL INICIO ----
     if check_and_handle_faq(from_number, text, session):
-        return # Si fue una FAQ, no hacemos nada más.
-    # -----------------------------------------
-    # Si el usuario pregunta por el producto de nuevo, reinicia el flujo.
-    if any(keyword in text.lower() for keyword in KEYWORDS_GIRASOL) and session.get('state') not in ['awaiting_occasion_response', 'awaiting_purchase_decision']:
-        logger.info(f"Usuario {from_number} reiniciando flujo.")
-        delete_session(from_number)
-        handle_initial_message(from_number, session.get("user_name", "Usuario"), text)
         return
 
     current_state = session.get('state')
-    product_id = session.get('product_id')
+    handler_func = STATE_HANDLERS.get(current_state)
 
-    # Valida que el producto aún exista
+    # --- NUEVA LÓGICA DE EXCEPCIÓN ---
+    # Si estamos esperando la elección del menú, no necesitamos un producto todavía.
+    # Llamamos a su función directamente y terminamos.
+    if current_state == "awaiting_menu_choice":
+        if handler_func:
+            handler_func(from_number, text, session, None) # Pasamos None para product_data
+        return
+    # ------------------------------------
+
+    # Para todos los demás estados, sí necesitamos un producto.
+    product_id = session.get('product_id')
+    if not product_id:
+        send_text_message(from_number, "Hubo un problema con tu sesión. Por favor, empieza de nuevo escribiendo 'cancelar'.")
+        return
+    
     try:
         product_doc = db.collection('productos').document(product_id).get()
         if not product_doc.exists:
@@ -683,9 +688,6 @@ def handle_sales_flow(from_number, text, session):
         send_text_message(from_number, "Tuvimos un problema al consultar el producto. Inténtalo de nuevo.")
         return
 
-    # La magia del despachador: busca y ejecuta la función correcta
-    handler_func = STATE_HANDLERS.get(current_state)
-    
     if handler_func:
         handler_func(from_number, text, session, product_data)
     else:
