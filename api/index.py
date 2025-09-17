@@ -148,6 +148,38 @@ def send_text_message(to_number, text):
 def send_image_message(to_number, image_url):
     send_whatsapp_message(to_number, {"type": "image", "image": {"link": image_url}})
 
+# --- NUEVA FUNCIÓN PARA BOTONES AÑADIDA AQUÍ ---
+def send_interactive_message(to_number, body_text, buttons):
+    # 'buttons' debe ser una lista de diccionarios, ej: [{'id': '1', 'title': 'Ver Catálogo'}]
+    # La API de WhatsApp solo permite un máximo de 3 botones.
+    if len(buttons) > 3:
+        logger.warning("Se intentó enviar un mensaje con más de 3 botones. Solo se usarán los primeros 3.")
+        buttons = buttons[:3]
+
+    button_payload = []
+    for button in buttons:
+        button_payload.append({
+            "type": "reply",
+            "reply": {
+                "id": button.get('id'),
+                "title": button.get('title')
+            }
+        })
+
+    message_data = {
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": body_text
+            },
+            "action": {
+                "buttons": button_payload
+            }
+        }
+    }
+    send_whatsapp_message(to_number, message_data)
+
 # ==============================================================================
 # 4. FUNCIONES DE INTERACCIÓN CON FIRESTORE
 # ==============================================================================
@@ -359,30 +391,31 @@ def check_and_handle_faq(from_number, text, session):
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
-def handle_initial_message(from_number, user_name, text):
-    product_id, product_data = find_product_by_keywords(text)
-    if product_data:
-        nombre_producto, desc_corta, precio, url_img = product_data.get('nombre', ''), product_data.get('descripcion_corta', ''), product_data.get('precio_base', 0), product_data.get('imagenes', {}).get('principal')
-        if url_img: send_image_message(from_number, url_img); time.sleep(1)
-        msg = (f"¡Hola {user_name}! 🌞 El *{nombre_producto}* {desc_corta}\n\n"
-               f"Por campaña, llévatelo a *S/ {precio:.2f}* (¡incluye envío gratis a todo el Perú! 🚚).\n\n"
-               "Cuéntame, ¿es un tesoro para ti o un regalo para alguien especial?")
-        send_text_message(from_number, msg)
-        save_session(from_number, {"state": "awaiting_occasion_response", "product_id": product_id, "product_name": nombre_producto, "product_price": float(precio), "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False})
-        return
-   
-    if check_and_handle_faq(from_number, text, session=None):
-        return
+def handle_menu_choice(from_number, text, session, product_data):
+    choice = text.strip()
 
-    if MENU_PRINCIPAL:
-        welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
-        options = MENU_PRINCIPAL.get('opciones', {})
-        menu_text = "\n".join([f"{key}️⃣ {value}" for key, value in sorted(options.items())])
-        full_message = f"{welcome_message}\n\n{menu_text}"
-        send_text_message(from_number, full_message)
-        save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
+    # El usuario eligió ver el catálogo
+    if choice == '1':
+        if CATALOGO_PRODUCTOS:
+            mensaje = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
+            botones = [{'id': key, 'title': value.get('nombre', '')} for key, value in sorted(CATALOGO_PRODUCTOS.items())]
+            send_interactive_message(from_number, mensaje, botones)
+            save_session(from_number, {"state": "awaiting_product_choice"})
+        else:
+            send_text_message(from_number, "Lo siento, no pude cargar el catálogo en este momento.")
+
+    # El usuario eligió ver las FAQs
+    elif choice == '2':
+        if MENU_FAQ:
+            mensaje = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
+            # Acortamos el texto de la pregunta para que quepa en el botón (límite de 20 caracteres)
+            botones = [{'id': key, 'title': value.get('pregunta', '')[:20]} for key, value in sorted(MENU_FAQ.items())]
+            send_interactive_message(from_number, mensaje, botones)
+            save_session(from_number, {"state": "awaiting_faq_choice"})
+        else:
+            send_text_message(from_number, "Lo siento, no pude cargar las preguntas frecuentes.")
     else:
-        send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*.")
+        send_text_message(from_number, "Opción no válida. Por favor, elige una de las opciones.")   
 
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
@@ -821,11 +854,18 @@ def process_message(message, contacts):
         text_body = ""
         if message_type == 'text':
             text_body = message.get('text', {}).get('body', '')
+
+        # --- AÑADIDO PARA ENTENDER BOTONES ---
+        elif message_type == 'interactive' and message.get('interactive', {}).get('type') == 'button_reply':
+            # Cuando se presiona un botón, extraemos su ID y lo usamos como si fuera texto.
+            text_body = message.get('interactive', {}).get('button_reply', {}).get('id', '')
+        # ------------------------------------
+
         elif message_type == 'image':
             if session and session.get('state') in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
                 text_body = "COMPROBANTE_RECIBIDO"
             else:
-                text_body = "_Imagen Recibida_"
+                text_body = "_Imagen Recibida_"                
         else:
             send_text_message(from_number, "Por ahora solo puedo procesar mensajes de texto e imágenes. 😊")
             return
