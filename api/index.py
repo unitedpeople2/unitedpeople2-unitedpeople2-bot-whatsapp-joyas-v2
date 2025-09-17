@@ -671,7 +671,7 @@ def process_message(message, contacts):
                     venta_data = venta_activa.to_dict()
                     text_lower = text_body.lower()
                     
-                    if any(k in text_lower for k in ['cuánto', 'cuanto', 'falta', 'pagar', 'saldo', 'restante']):
+                    if any(k in text_lower for k in ['cuánto debo', 'cuanto debo', 'cuál es mi saldo', 'mi saldo', 'falta pagar', 'saldo restante']):
                         saldo = venta_data.get('saldo_restante', 0)
                         msg_saldo = f"¡Hola {user_name}! 😊 Claro, tu saldo restante para el pedido es de *S/ {saldo:.2f}*. Quedo atento a tu comprobante para enviarte la clave secreta. ✨"
                         send_text_message(from_number, msg_saldo)
