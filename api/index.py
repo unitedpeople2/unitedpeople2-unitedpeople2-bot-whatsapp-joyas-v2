@@ -450,29 +450,6 @@ def handle_menu_choice(from_number, text, session, product_data):
     else:
         send_text_message(from_number, "Opción no válida. Por favor, elige una de las opciones.")   
 
-def handle_menu_choice(from_number, text, session, product_data):
-    choice = text.strip()
-    if choice == '1':
-        if CATALOGO_PRODUCTOS:
-            mensaje_catalogo = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
-            catalogo_texto = "\n".join([f"{key}️⃣ {value.get('nombre', '')}" for key, value in sorted(CATALOGO_PRODUCTOS.items())])
-            send_text_message(from_number, f"{mensaje_catalogo}\n\n{catalogo_texto}")
-            save_session(from_number, {"state": "awaiting_product_choice"})
-        else:
-            send_text_message(from_number, "Lo siento, parece que no pude cargar el catálogo en este momento. Inténtalo más tarde.")
-    elif choice == '2':
-        # --- NUEVA LÓGICA PARA MENÚ DE FAQS ---
-        if MENU_FAQ:
-            mensaje_faq = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
-            faq_texto = "\n".join([f"{key}️⃣ {value.get('pregunta', '')}" for key, value in sorted(MENU_FAQ.items())])
-            send_text_message(from_number, f"{mensaje_faq}\n\n{faq_texto}")
-            save_session(from_number, {"state": "awaiting_faq_choice"})
-        else:
-            send_text_message(from_number, "Lo siento, no pude cargar las preguntas frecuentes. ¿Podrías escribir tu duda directamente?")
-            delete_session(from_number)
-        # ------------------------------------
-    else:
-        send_text_message(from_number, "Por favor, responde con el número de la opción (ej: 1).")
 
 def handle_product_choice(from_number, text, session, product_data):
     choice = text.strip()
