@@ -614,6 +614,18 @@ def handle_sales_flow(from_number, text, session):
 # ==============================================================================
 # 8. WEBHOOK PRINCIPAL Y PROCESADOR DE MENSAJES
 # ==============================================================================
+# V-- AÑADE ESTE CÓDIGO AQUÍ --V
+@app.route('/')
+def index():
+    # Mensaje para quien visite la URL principal
+    return "¡Hola! Soy el Chatbot de Daaqui Joyas. Estoy funcionando correctamente. 🤖✨"
+
+@app.route('/favicon.ico')
+def favicon():
+    # Responde que no hay contenido para el ícono, evitando el error 404
+    return '', 204
+# ^-- FIN DEL CÓDIGO AÑADIDO --^
+
 @app.route('/api/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
