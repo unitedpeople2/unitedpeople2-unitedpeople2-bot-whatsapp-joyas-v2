@@ -246,7 +246,7 @@ def guardar_pedido_en_sheet(sale_data):
         creds_dict = json.loads(creds_json_str)
         gc = gspread.service_account_from_dict(creds_dict)
         spreadsheet = gc.open(sheet_name)
-        worksheet = spreadsheet.sheet1
+        worksheet = spreadsheet.worksheet("Pedidos")
         nueva_fila = [
             datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             sale_data.get('id_venta', 'N/A'),
@@ -262,14 +262,16 @@ def guardar_pedido_en_sheet(sale_data):
             sale_data.get('cliente_id', 'N/A')
         ]
         
-        # --- AQUÍ ESTÁ EL CAMBIO ---
+        # --- INICIO DE LA NUEVA MEJORA ---
 
-        # 1. Se eliminó la línea antigua:
-        # worksheet.append_row(nueva_fila)
+        # En lugar de leer toda la hoja, leemos solo los valores de la primera columna (columna A).
+        columna_a = worksheet.col_values(1)
+        
+        # La siguiente fila libre será el número de celdas con datos en esa columna + 1.
+        next_row_index = len(columna_a) + 1
 
-        # 2. Se agregaron estas líneas nuevas:
-        list_of_values = worksheet.get_all_values()
-        next_row_index = len(list_of_values) + 1
+        # --- FIN DE LA NUEVA MEJORA ---
+
         worksheet.insert_row(nueva_fila, next_row_index)
 
         logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado en la fila {next_row_index}.")
@@ -289,7 +291,7 @@ def find_key_in_sheet(cliente_id):
         creds_dict = json.loads(creds_json_str)
         gc = gspread.service_account_from_dict(creds_dict)
         spreadsheet = gc.open(sheet_name)
-        worksheet = spreadsheet.sheet1
+        worksheet = spreadsheet.worksheet("Pedidos")
         cell = worksheet.find(cliente_id, in_column=12) 
         if cell:
             clave = worksheet.cell(cell.row, 15).value 
