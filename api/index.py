@@ -763,11 +763,27 @@ def handle_payment_received(from_number, text, session, product_data):
         send_text_message(from_number, "Estoy esperando la *captura de pantalla* de tu pago. 😊")
 
 def handle_delivery_confirmation_lima(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    # Revisa si la respuesta NO es una confirmación
+    if 'confirmo' not in text.lower() and text != 'confirmo_entrega_lima':
+        # Si no es una confirmación, intenta manejarla como una FAQ
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            # Vuelve a hacer la pregunta original
+            dia_entrega = get_delivery_day_message()
+            reprompt_message = (f"Espero haber aclarado tu duda. 😊 Para finalizar, solo necesito que confirmes que habrá alguien disponible para recibir tu joya y pagar el saldo el día {dia_entrega}.")
+            botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
+    # Si el texto es una confirmación O si no fue una FAQ, procedemos
     if 'confirmo' in text.lower() or text == 'confirmo_entrega_lima':
         mensaje_final = ("¡Listo! ✅ Tu pedido ha sido *confirmado en la ruta* 🚚. ¡Muchas gracias por tu compra! 🎉😊")
         send_text_message(from_number, mensaje_final)
         delete_session(from_number)
     else:
+        # Si no fue una FAQ pero tampoco una confirmación, volvemos a pedirla.
         mensaje_solicitud = ("Por favor, para asegurar tu pedido, presiona el botón de confirmación.")
         botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
         send_interactive_message(from_number, mensaje_solicitud, botones)
