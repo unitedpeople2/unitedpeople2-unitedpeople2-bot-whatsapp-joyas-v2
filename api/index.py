@@ -589,12 +589,8 @@ def handle_province_district(from_number, text, session, product_data):
     session.update({"tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     
-    ubicacion_texto = f"*{provincia}*"
-    if provincia.lower() != distrito.lower():
-        ubicacion_texto = f"*{provincia}, {distrito}*"
-
-    # --- MENSAJE CON FORMATO CORREGIDO ---
-    mensaje = (f"¡Genial! Prepararemos tu envío para {ubicacion_texto} vía Shalom. "
+    # --- MENSAJE CORREGIDO PARA MOSTRAR SOLO PROVINCIA EN NEGRITA ---
+    mensaje = (f"¡Genial! Prepararemos tu envío para *{provincia}* vía Shalom. "
                f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. "
                f"Para asegurar y priorizar tu paquete en la próxima salida, solicitamos un adelanto de S/ {adelanto:.2f} como compromiso de recojo.\n\n"
                "¿Procedemos?")
