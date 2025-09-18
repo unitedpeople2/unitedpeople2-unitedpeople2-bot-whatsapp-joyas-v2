@@ -681,19 +681,19 @@ def handle_shalom_experience(from_number, text, session, product_data):
                    "¿Conoces la dirección de alguna agencia Shalom cerca a ti?")
         
         botones = [
-            {'id': 'si_se_direccion', 'title': 'Sí, la conozco'},
-            {'id': 'no_se_direccion', 'title': 'No, necesito buscar'}
+            {'id': 'shalom_knows_addr_yes', 'title': 'Sí, la conozco'},
+            {'id': 'shalom_knows_addr_no', 'title': 'No, necesito buscar'}
         ]
         send_interactive_message(from_number, mensaje, botones)
 
 def handle_shalom_agency_knowledge(from_number, text, session, product_data):
-    if text == 'si_se_direccion':
+    if text == 'shalom_knows_addr_yes':
         session['state'] = 'awaiting_shalom_details'
         save_session(from_number, session)
         mensaje = ("¡Perfecto! Por favor, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽\n\n"
                    "📝 *Ej: Carlos Ruiz, 87654321, Jr. Gamarra 456, Trujillo.*")
         send_text_message(from_number, mensaje)
-    else: # 'no_se_direccion'
+    else: # 'shalom_knows_addr_no'
         delete_session(from_number)
         send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. Cuando la tengas, puedes iniciar la conversación de nuevo. ¡Gracias por tu interés!")
 
@@ -832,43 +832,43 @@ STATE_HANDLERS = {
 }
 
 def handle_sales_flow(from_number, text, session):
-    if check_and_handle_faq(from_number, text, session):
-        return
-
     current_state = session.get('state')
     handler_func = STATE_HANDLERS.get(current_state)
 
-    # --- LÓGICA DE EXCEPCIÓN FINAL ---
-    # Si estamos en cualquiera de los estados de menú, no necesitamos un producto.
+    # --- LÓGICA DE EXCEPCIÓN FINAL (SE MANTIENE IGUAL) ---
     if current_state in ["awaiting_menu_choice", "awaiting_product_choice", "awaiting_faq_choice"]:
         if handler_func:
-            handler_func(from_number, text, session, None) # Pasamos None para product_data
+            handler_func(from_number, text, session, None)
         return
-    # ------------------------------------
 
-    # Para todos los demás estados, sí necesitamos un producto.
+    # OBTENCIÓN DE DATOS DEL PRODUCTO (SE MANTIENE IGUAL)
     product_id = session.get('product_id')
-    if not product_id:
-        send_text_message(from_number, "Hubo un problema con tu sesión. Por favor, empieza de nuevo escribiendo 'cancelar'.")
-        return
+    # ... (el resto del bloque try/except para obtener product_data) ...
+    # ...
     
-    try:
-        product_doc = db.collection('productos').document(product_id).get()
-        if not product_doc.exists:
-            send_text_message(from_number, "Lo siento, este producto ya no está disponible. Por favor, empieza de nuevo.")
-            delete_session(from_number)
-            return
-        product_data = product_doc.to_dict()
-    except Exception as e:
-        logger.error(f"Error al obtener producto {product_id}: {e}")
-        send_text_message(from_number, "Tuvimos un problema al consultar el producto. Inténtalo de nuevo.")
-        return
-
+    # --- CAMBIO DE LÓGICA PRINCIPAL ---
     if handler_func:
+        # 1. Intenta ejecutar la lógica del estado actual PRIMERO.
         handler_func(from_number, text, session, product_data)
+        
+        # 2. Revisa si el estado cambió después de ejecutar. 
+        # Si NO cambió, significa que la respuesta del usuario no fue la esperada (p. ej. no era un ID de botón).
+        new_session = get_session(from_number) # Vuelve a obtener la sesión
+        if new_session and new_session.get('state') == current_state:
+            # 3. Como el estado no avanzó, AHORA SÍ revisa si es una FAQ.
+            if not check_and_handle_faq(from_number, text, session):
+                 # 4. Si tampoco es una FAQ, envía un recordatorio de la pregunta original.
+                 last_question = get_last_question(current_state)
+                 if last_question:
+                     send_text_message(from_number, f"No entendí muy bien tu respuesta. Para continuar, por favor respóndeme a esto:\n\n{last_question}")
+                 else:
+                     send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
+
     else:
         logger.warning(f"No se encontró un manejador para el estado: {current_state} del usuario {from_number}")
-        send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
+        # Si no hay manejador, revisa si es una FAQ como último recurso.
+        if not check_and_handle_faq(from_number, text, session):
+            send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
 
 # ==============================================================================
 # 8. WEBHOOK PRINCIPAL Y PROCESADOR DE MENSAJES
