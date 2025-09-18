@@ -276,11 +276,11 @@ def start_sales_flow(from_number, user_name, product_id):
 def send_welcome_message(from_number, user_name):
     """Envía el mensaje de bienvenida persuasivo y establece el estado inicial."""
     welcome_text = (
-        f"¡Hola {user_name}! Estás a punto de descubrir el **secreto** del Collar Mágico Girasol Radiant. 🤫✨\n\n"
-        "No es solo una joya, es una pieza que **se conecta contigo**, cambiando de color para reflejar tu propia energía. 💖\n\n"
-        "Debido a su diseño único, tenemos **pocas unidades disponibles** en esta campaña. ⚠️\n\n"
-        "Puedes llevarte la tuya por **S/ 69.00** (incluye **envío gratis** a todo el Perú 🇵🇪🚚).\n\n"
-        "Antes de contarte más, dime, ¿esta **magia** es para ti o para sorprender a alguien especial? 🎁"
+        f"¡Hola {user_name}! Estás a punto de descubrir el *secreto* del Collar Mágico Girasol Radiant. 🤫✨\n"
+        "No es solo una joya, es una pieza que *se conecta contigo*, cambiando de color para reflejar tu propia energía. 💖\n"
+        "Debido a su diseño único, tenemos *pocas unidades disponibles* en esta campaña. ⚠️\n"
+        "Puedes llevarte la tuya por *S/ 69.00* (incluye *envío gratis* a todo el Perú 🇵🇪🚚).\n\n"
+        "Antes de contarte más, dime, ¿esta *magia* es para ti o para sorprender a alguien especial? 🎁"
     )
     send_text_message(from_number, welcome_text)
 
@@ -361,6 +361,13 @@ def handle_faq_choice(from_number, text, session, product_data):
 # 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA)
 # ==============================================================================
 def handle_occasion_response(from_number, text, session, product_data):
+    # --- CORRECCIÓN: AÑADIR IMAGEN DEL EMPAQUE ---
+    url_imagen_empaque = product_data.get('imagenes', {}).get('empaque')
+    if url_imagen_empaque:
+        send_image_message(from_number, url_imagen_empaque)
+        time.sleep(1)
+    
+    # --- LÓGICA ORIGINAL ---
     detalles = product_data.get('detalles', {})
     mensaje_persuasion_1 = (f"¡Maravillosa elección! ✨ El *{product_data.get('nombre')}* es pura energía. Aquí tienes todos los detalles:\n\n"
                             f"💎 *Material:* {detalles.get('material', 'alta calidad')}\n"
