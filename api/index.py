@@ -589,15 +589,14 @@ def handle_province_district(from_number, text, session, product_data):
     session.update({"tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     
-    # --- LÓGICA MEJORADA PARA MOSTRAR UBICACIÓN ---
     ubicacion_texto = f"*{provincia}*"
     if provincia.lower() != distrito.lower():
         ubicacion_texto = f"*{provincia}, {distrito}*"
 
-    # --- MENSAJE CORREGIDO PARA ASEGURAR NEGRITA ---
-    mensaje = (f"¡Genial! Prepararemos tu envío para {ubicacion_texto} vía *Shalom*. "
+    # --- MENSAJE CON FORMATO CORREGIDO ---
+    mensaje = (f"¡Genial! Prepararemos tu envío para {ubicacion_texto} vía Shalom. "
                f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. "
-               f"Para asegurar y priorizar tu paquete en la próxima salida, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
+               f"Para asegurar y priorizar tu paquete en la próxima salida, solicitamos un adelanto de S/ {adelanto:.2f} como compromiso de recojo.\n\n"
                "¿Procedemos?")
     
     botones = [
@@ -903,41 +902,40 @@ def process_message(message, contacts):
         from_number = message.get('from')
         user_name = next((c.get('profile', {}).get('name', 'Usuario') for c in contacts if c.get('wa_id') == from_number), 'Usuario')
         
-        # --- LÓGICA DE EXPIRACIÓN DE SESIÓN AÑADIDA ---
         session = get_session(from_number)
+        
+        # --- CÓDIGO DE DIAGNÓSTICO PARA LA SESIÓN ---
+        if session:
+            logger.info(f"SESIÓN ENCONTRADA. Estado actual: {session.get('state')}")
+        else:
+            logger.warning("ALERTA: NO SE ENCONTRÓ SESIÓN PARA ESTE USUARIO.")
+        # ----------------------------------------------
+
         if session and 'last_updated' in session:
             last_update_time = session['last_updated']
-            # Aseguramos que el timestamp tenga zona horaria para una comparación correcta
             if last_update_time.tzinfo is None:
                 last_update_time = last_update_time.replace(tzinfo=timezone.utc)
-
-            # Límite de 2 horas
             if datetime.now(timezone.utc) - last_update_time > timedelta(hours=2):
                 logger.info(f"Sesión expirada por inactividad para {from_number}. Eliminando.")
                 delete_session(from_number)
                 send_text_message(from_number, "Hola de nuevo. 😊 Parece que ha pasado un tiempo. Si necesitas algo, no dudes en preguntar.")
-                session = None # Anulamos la sesión para que el flujo comience de nuevo
+                session = None
 
-        # --- El resto del código continúa desde aquí ---
         message_type = message.get('type')
         text_body = ""
         if message_type == 'text':
             text_body = message.get('text', {}).get('body', '')
-
-        # --- AÑADIDO PARA ENTENDER BOTONES ---
         elif message_type == 'interactive' and message.get('interactive', {}).get('type') == 'button_reply':
-            # Cuando se presiona un botón, extraemos su ID y lo usamos como si fuera texto.
             text_body = message.get('interactive', {}).get('button_reply', {}).get('id', '')
-        # ------------------------------------
-
         elif message_type == 'image':
             if session and session.get('state') in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
                 text_body = "COMPROBANTE_RECIBIDO"
             else:
-                text_body = "_Imagen Recibida_"                
+                text_body = "_Imagen Recibida_"
         else:
-            send_text_message(from_number, "Por ahora solo puedo procesar mensajes de texto e imágenes. 😊")
+            send_text_message(from_number, "Por ahora solo puedo procesar mensajes de texto, botones e imágenes. 😊")
             return
+
         logger.info(f"Procesando de {user_name} ({from_number}): '{text_body}'")
 
         if from_number == ADMIN_WHATSAPP_NUMBER and text_body.lower().startswith('clave '):
@@ -963,36 +961,25 @@ def process_message(message, contacts):
             if session:
                 delete_session(from_number)
                 send_text_message(from_number, "Hecho. He cancelado el proceso. Si necesitas algo más, escríbeme. 😊")
-                return # Detenemos aquí
-
-            # NUEVA LÓGICA: ¿Y si no hay sesión pero sí una venta pendiente?
+                return
             venta_activa = None
             if db:
                 ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
                 venta_activa = next(ventas_pendientes, None)
-            
             if venta_activa:
-                # Opcional: Podrías actualizar el estado en Firestore a "Cancelado"
-                # db.collection('ventas').document(venta_activa.id).update({'estado_pedido': 'Cancelado por Cliente'})
                 send_text_message(from_number, "Entendido. He detenido los recordatorios sobre tu pedido pendiente. Si tienes alguna consulta, un asesor se pondrá en contacto. ¡Gracias!")
-                
-                # Opcional: Notificar al admin sobre la cancelación
                 if ADMIN_WHATSAPP_NUMBER:
                     send_text_message(ADMIN_WHATSAPP_NUMBER, f"⚠️ El cliente {from_number} ({user_name}) ha solicitado cancelar el seguimiento de su pedido pendiente.")
-                return # Detenemos el proceso aquí también
-
-            # Si no hay ni sesión ni venta pendiente, simplemente no responde.
+                return
             return
 
-        # Volvemos a obtener la sesión por si fue eliminada por la lógica de expiración o cancelación
         session = get_session(from_number)
         if not session:
-            # Lógica para manejar mensajes de clientes con pagos finales pendientes pero sin sesión
             if db:
                 ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
                 venta_activa = next(ventas_pendientes, None)
                 if venta_activa:
-                    if message_type == 'image': # Si envían imagen, es probable que sea un pago final
+                    if message_type == 'image':
                          logger.info(f"Posible pago final (imagen) detectado de {from_number} para envío Shalom.")
                          clave_encontrada = find_key_in_sheet(from_number)
                          notificacion_info = (f"🔔 *¡Atención! Posible Pago Final Recibido* 🔔\n\n"
@@ -1008,13 +995,11 @@ def process_message(message, contacts):
                                               f"Busca la clave y envíala con:\n`clave {from_number} LA_CLAVE_SECRETA`")
                              send_text_message(ADMIN_WHATSAPP_NUMBER, notificacion_info)
                          return
-                    else: # Si escriben texto, les recordamos cómo pagar
+                    else:
                         msg_yape = (f"¡Hola {user_name}! 😊 Veo que tienes un pago pendiente. Puedes realizarlo a nuestro Yape/Plin: *{YAPE_NUMERO}* a nombre de *{TITULAR_YAPE}*.\n\n"
                                     "No olvides enviarme la captura para darte tu clave. ¡Gracias! 🔑")
                         send_text_message(from_number, msg_yape)
                         return
-            
-            # Si no hay venta pendiente, inicia el flujo normal
             handle_initial_message(from_number, user_name, text_body if message_type == 'text' else "collar girasol")
         else:
             handle_sales_flow(from_number, text_body, session)
