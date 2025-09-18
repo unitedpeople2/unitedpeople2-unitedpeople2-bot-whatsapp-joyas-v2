@@ -832,41 +832,58 @@ STATE_HANDLERS = {
 }
 
 def handle_sales_flow(from_number, text, session):
+    # 1. Obtenemos el estado actual y su función (manejador) correspondiente
     current_state = session.get('state')
     handler_func = STATE_HANDLERS.get(current_state)
 
-    # --- LÓGICA DE EXCEPCIÓN FINAL (SE MANTIENE IGUAL) ---
+    # 2. Lógica especial para los estados de menú que no necesitan un producto
     if current_state in ["awaiting_menu_choice", "awaiting_product_choice", "awaiting_faq_choice"]:
         if handler_func:
             handler_func(from_number, text, session, None)
         return
 
-    # OBTENCIÓN DE DATOS DEL PRODUCTO (SE MANTIENE IGUAL)
+    # --- ESTE BLOQUE ES CRUCIAL ---
+    # 3. Obtenemos los datos del producto ANTES de cualquier otra lógica
     product_id = session.get('product_id')
-    # ... (el resto del bloque try/except para obtener product_data) ...
-    # ...
-    
-    # --- CAMBIO DE LÓGICA PRINCIPAL ---
+    if not product_id:
+        send_text_message(from_number, "Hubo un problema con tu sesión. Por favor, empieza de nuevo escribiendo 'cancelar'.")
+        return
+    try:
+        product_doc = db.collection('productos').document(product_id).get()
+        if not product_doc.exists:
+            send_text_message(from_number, "Lo siento, este producto ya no está disponible. Por favor, empieza de nuevo.")
+            delete_session(from_number)
+            return
+        # La variable 'product_data' se define aquí
+        product_data = product_doc.to_dict()
+    except Exception as e:
+        logger.error(f"Error al obtener producto {product_id}: {e}")
+        send_text_message(from_number, "Tuvimos un problema al consultar el producto. Inténtalo de nuevo.")
+        return
+    # --- FIN DEL BLOQUE CRUCIAL ---
+
+    # 4. LÓGICA PRINCIPAL INVERTIDA
     if handler_func:
-        # 1. Intenta ejecutar la lógica del estado actual PRIMERO.
+        # Primero, se intenta ejecutar la lógica del estado actual, pasando el 'product_data' que acabamos de obtener
         handler_func(from_number, text, session, product_data)
         
-        # 2. Revisa si el estado cambió después de ejecutar. 
-        # Si NO cambió, significa que la respuesta del usuario no fue la esperada (p. ej. no era un ID de botón).
-        new_session = get_session(from_number) # Vuelve a obtener la sesión
+        new_session = get_session(from_number)
+        
+        # Si la sesión existe y el estado NO cambió, la respuesta del usuario no fue la esperada
         if new_session and new_session.get('state') == current_state:
-            # 3. Como el estado no avanzó, AHORA SÍ revisa si es una FAQ.
-            if not check_and_handle_faq(from_number, text, session):
-                 # 4. Si tampoco es una FAQ, envía un recordatorio de la pregunta original.
-                 last_question = get_last_question(current_state)
-                 if last_question:
-                     send_text_message(from_number, f"No entendí muy bien tu respuesta. Para continuar, por favor respóndeme a esto:\n\n{last_question}")
-                 else:
-                     send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
-
+            
+            # Ahora sí, revisamos si es una FAQ
+            if not check_and_handle_faq(from_number, text, new_session):
+            
+                # Si tampoco es una FAQ, le recordamos al usuario la pregunta anterior
+                last_question = get_last_question(current_state)
+                if last_question:
+                    send_text_message(from_number, f"No entendí muy bien tu respuesta. Para continuar, por favor respóndeme a esto:\n\n{last_question}")
+                else:
+                    send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
     else:
+        # Si no se encontró un manejador para el estado, se notifica y se intenta la FAQ como último recurso
         logger.warning(f"No se encontró un manejador para el estado: {current_state} del usuario {from_number}")
-        # Si no hay manejador, revisa si es una FAQ como último recurso.
         if not check_and_handle_faq(from_number, text, session):
             send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
 
