@@ -38,6 +38,7 @@ FAQ_KEYWORD_MAP = {}
 MENU_PRINCIPAL = {}
 CATALOGO_PRODUCTOS = {}
 MENU_FAQ = {}
+CAMPAIGNS_CONFIG = {} # <-- NUEVA VARIABLE AÑADIDA
 
 try:
     # --- CONEXIÓN CON FIREBASE ---
@@ -75,6 +76,16 @@ try:
             logger.info("✅ Configuración general cargada.")
         else:
             logger.warning("⚠️ Documento 'configuracion_general' no encontrado.")
+            
+        # --- INICIO DEL NUEVO BLOQUE ---
+        # Carga la configuración de campañas
+        campaigns_doc = db.collection('configuracion').document('campañas_y_ofertas').get()
+        if campaigns_doc.exists:
+            CAMPAIGNS_CONFIG = campaigns_doc.to_dict()
+            logger.info("✅ Configuración de campañas y ofertas cargada.")
+        else:
+            logger.warning("⚠️ Documento 'campañas_y_ofertas' no encontrado.")
+        # --- FIN DEL NUEVO BLOQUE ---
 
         # --- CONEXIÓN CON GOOGLE SHEETS ---
         creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
@@ -321,11 +332,15 @@ def send_welcome_message(from_number, user_name):
     send_interactive_message(from_number, question_text, botones)
 
 def handle_initial_message(from_number, user_name, text):
-    # 1. Lógica de Coincidencia Exacta para Anuncios (MÁXIMA PRIORIDAD)
-    frase_anuncio = "Quiero info del Collar Mágico Girasol Radiant"
-    if text == frase_anuncio:
-        logger.info(f"Coincidencia exacta de anuncio para: {from_number}")
-        start_sales_flow(from_number, user_name, "collar-girasol-radiant-01")
+    # --- LÓGICA MEJORADA: LEE LA CONFIGURACIÓN DESDE FIREBASE ---
+    anuncio_config = CAMPAIGNS_CONFIG.get('anuncio_principal', {})
+    frase_anuncio = anuncio_config.get('frase_exacta')
+    producto_id_anuncio = anuncio_config.get('producto_id')
+
+    # 1. Revisa si es la frase exacta del anuncio cargada desde Firebase
+    if frase_anuncio and text == frase_anuncio:
+        logger.info(f"Coincidencia de anuncio desde Firebase para: {from_number}")
+        start_sales_flow(from_number, user_name, producto_id_anuncio)
         return
 
     # 2. Revisa si es un ID de producto (del menú del catálogo)
@@ -335,13 +350,13 @@ def handle_initial_message(from_number, user_name, text):
             start_sales_flow(from_number, user_name, text)
             return
     except Exception:
-        pass # No es un ID de producto, continúa
+        pass 
     
     # 3. Revisa si es una pregunta frecuente (FAQ)
     if check_and_handle_faq(from_number, text):
         return
         
-    # 4. Si no fue nada de lo anterior, muestra el menú principal
+    # 4. Si no, muestra el menú principal
     if MENU_PRINCIPAL:
         welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
         botones = [{'id': '1', 'title': '🛍️ Ver Colección'}, {'id': '2', 'title': '❓ Preguntas'}]
@@ -477,7 +492,7 @@ def handle_purchase_decision(from_number, text, session, product_data):
         send_text_message(from_number, "Entendido. Si cambias de opinión, aquí estaré. ¡Que tengas un buen día! 😊")
 
 def handle_upsell_decision(from_number, text, session, product_data):
-    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    # (El filtro inteligente para interrupciones se mantiene igual)
     if text not in ['oferta', 'continuar']:
         if check_and_handle_faq(from_number, text):
             time.sleep(1.5)
@@ -486,11 +501,17 @@ def handle_upsell_decision(from_number, text, session, product_data):
             send_interactive_message(from_number, reprompt_message, botones)
             return
 
-    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
-    if text == 'oferta':
-        session.update({"product_name": "Oferta 2x Collares Mágicos + Cadenas", "product_price": 99.00, "is_upsell": True})
+    # --- LÓGICA MEJORADA: LEE LA OFERTA DESDE FIREBASE ---
+    upsell_config = CAMPAIGNS_CONFIG.get('oferta_upsell', {})
+    nombre_oferta = upsell_config.get('nombre_producto', 'Oferta Especial')
+    precio_oferta = upsell_config.get('precio', 99.00)
+    oferta_activa = upsell_config.get('activa', False)
+
+    # Solo actualiza la sesión con la oferta si está activa en Firebase
+    if text == 'oferta' and oferta_activa:
+        session.update({"product_name": nombre_oferta, "product_price": precio_oferta, "is_upsell": True})
         send_text_message(from_number, "¡Genial! Has elegido la oferta. ✨")
-    else: # Esto se activa con 'continuar' o cualquier otra cosa que no sea una FAQ
+    else:
         session['is_upsell'] = False
         send_text_message(from_number, "¡Perfecto! Continuamos con tu collar individual. ✨")
     
