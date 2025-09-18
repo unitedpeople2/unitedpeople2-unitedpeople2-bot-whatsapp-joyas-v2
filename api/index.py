@@ -274,15 +274,24 @@ def start_sales_flow(from_number, user_name, product_id):
     send_welcome_message(from_number, user_name)
 
 def send_welcome_message(from_number, user_name):
-    """Envía el mensaje de bienvenida persuasivo y establece el estado inicial."""
+    """Envía el mensaje de bienvenida persuasivo y luego la pregunta con botones."""
     welcome_text = (
         f"¡Hola {user_name}! Estás a punto de descubrir el *secreto* del Collar Mágico Girasol Radiant. 🤫✨\n"
         "No es solo una joya, es una pieza que *se conecta contigo*, cambiando de color para reflejar tu propia energía. 💖\n"
         "Debido a su diseño único, tenemos *pocas unidades disponibles* en esta campaña. ⚠️\n"
-        "Puedes llevarte la tuya por *S/ 69.00* (incluye *envío gratis* a todo el Perú 🇵🇪🚚).\n\n"
-        "Antes de contarte más, dime, ¿esta *magia* es para ti o para sorprender a alguien especial? 🎁"
+        "Puedes llevarte la tuya por *S/ 69.00* (incluye *envío gratis* a todo el Perú 🇵🇪🚚)."
     )
+    # Primero enviamos el texto principal
     send_text_message(from_number, welcome_text)
+    time.sleep(1.5) # Pausa para que el texto y los botones no lleguen juntos
+    
+    # Luego, enviamos la pregunta con los botones
+    question_text = "¿Esta *magia* es para ti o para sorprender a alguien especial? 🎁"
+    botones = [
+        {'id': 'es_regalo', 'title': '🎁 Es para un regalo'},
+        {'id': 'es_para_mi', 'title': '💖 Es para mí'}
+    ]
+    send_interactive_message(from_number, question_text, botones)
 
 def handle_initial_message(from_number, user_name, text):
     # 1. Lógica de Coincidencia Exacta para Anuncios (MÁXIMA PRIORIDAD)
@@ -361,13 +370,31 @@ def handle_faq_choice(from_number, text, session, product_data):
 # 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA)
 # ==============================================================================
 def handle_occasion_response(from_number, text, session, product_data):
-    # --- CORRECCIÓN: AÑADIR IMAGEN DEL EMPAQUE ---
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    # Revisa si el texto NO es una de las opciones esperadas en los botones
+    if text not in ['es_regalo', 'es_para_mi']:
+        # Si no es una opción, intenta manejarla como una FAQ
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5) # Pausa para que el usuario lea la respuesta
+            # Vuelve a hacer la pregunta original con los botones
+            question_text = "Espero haber aclarado tu duda. 😊 Continuando... ¿esta magia es para ti o es un regalo?"
+            botones = [
+                {'id': 'es_regalo', 'title': '🎁 Es para un regalo'},
+                {'id': 'es_para_mi', 'title': '💖 Es para mí'}
+            ]
+            send_interactive_message(from_number, question_text, botones)
+            return # Detiene la ejecución para esperar la nueva respuesta
+        # Si no fue una FAQ, simplemente ignoramos y esperamos una respuesta válida (botón o nueva pregunta)
+        # Podríamos opcionalmente reenviar los botones aquí, pero es mejor esperar para no ser spam.
+        return
+
+    # --- LÓGICA DEL SIGUIENTE PASO ---
+    # Si el cliente SÍ presionó un botón, continuamos con el flujo normal.
     url_imagen_empaque = product_data.get('imagenes', {}).get('empaque')
     if url_imagen_empaque:
         send_image_message(from_number, url_imagen_empaque)
         time.sleep(1)
     
-    # --- LÓGICA ORIGINAL ---
     detalles = product_data.get('detalles', {})
     mensaje_persuasion_1 = (f"¡Maravillosa elección! ✨ El *{product_data.get('nombre')}* es pura energía. Aquí tienes todos los detalles:\n\n"
                             f"💎 *Material:* {detalles.get('material', 'alta calidad')}\n"
@@ -378,8 +405,10 @@ def handle_occasion_response(from_number, text, session, product_data):
     
     mensaje_persuasion_2 = (f"Para tu total seguridad, somos Daaqui Joyas, un negocio formal con *RUC {RUC_EMPRESA}*. ¡Tu compra es 100% segura! 🇵🇪\n\n"
                             "¿Te gustaría coordinar tu pedido ahora para asegurar el tuyo?")
-    botones = [{'id': 'si_coordinar', 'title': '✅ Sí, coordinar'}, {'id': 'no_gracias', 'title': 'No, gracias'}]
-    send_interactive_message(from_number, mensaje_persuasion_2, botones)
+    botones_compra = [{'id': 'si_coordinar', 'title': '✅ Sí, coordinar'}, {'id': 'no_gracias', 'title': 'No, gracias'}]
+    send_interactive_message(from_number, mensaje_persuasion_2, botones_compra)
+    
+    # Actualizamos el estado al siguiente paso
     session['state'] = 'awaiting_purchase_decision'
     save_session(from_number, session)
     
