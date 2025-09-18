@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ==========================================================
-# BOT DAAQUI JOYAS - VERSIÓN CORREGIDA Y COMPLETA
+# BOT DAAQUI JOYAS - VERSIÓN LIMPIA Y FINAL
 # ==========================================================
 from flask import Flask, request, jsonify
 import requests
@@ -38,7 +38,6 @@ FAQ_KEYWORD_MAP = {}
 MENU_PRINCIPAL = {}
 CATALOGO_PRODUCTOS = {}
 MENU_FAQ = {}
-INITIAL_INTENTS = {}
 
 try:
     # --- CONEXIÓN CON FIREBASE ---
@@ -52,51 +51,32 @@ try:
         logger.info("✅ Conexión con Firebase establecida correctamente.")
 
         # Carga de toda la configuración desde Firestore...
-        rules_doc = db.collection('configuracion').document('reglas_envio').get()
-        if rules_doc.exists: BUSINESS_RULES = rules_doc.to_dict(); logger.info("✅ Reglas del negocio cargadas.")
-        faq_doc = db.collection('configuracion').document('respuestas_faq').get()
-        if faq_doc.exists: FAQ_RESPONSES = faq_doc.to_dict(); logger.info("✅ Respuestas FAQ cargadas.")
-        business_doc = db.collection('configuracion').document('datos_negocio').get()
-        if business_doc.exists: BUSINESS_DATA = business_doc.to_dict(); logger.info("✅ Datos del negocio cargados.")
+        docs_a_cargar = {
+            'reglas_envio': BUSINESS_RULES,
+            'respuestas_faq': FAQ_RESPONSES,
+            'datos_negocio': BUSINESS_DATA,
+            'menu_principal': MENU_PRINCIPAL,
+            'catalogo_productos': CATALOGO_PRODUCTOS,
+            'menu_faq': MENU_FAQ
+        }
+        for doc_id, var in docs_a_cargar.items():
+            doc = db.collection('configuracion').document(doc_id).get()
+            if doc.exists:
+                var.update(doc.to_dict())
+                logger.info(f"✅ Documento '{doc_id}' cargado.")
+            else:
+                logger.warning(f"⚠️ Documento '{doc_id}' no encontrado.")
+        
         config_doc = db.collection('configuracion').document('configuracion_general').get()
         if config_doc.exists:
             config_data = config_doc.to_dict()
             PALABRAS_CANCELACION = config_data.get('palabras_cancelacion', ['cancelar'])
             FAQ_KEYWORD_MAP = config_data.get('faq_keyword_map', {})
             logger.info("✅ Configuración general cargada.")
-        
-        menu_doc = db.collection('configuracion').document('menu_principal').get()
-        if menu_doc.exists:
-            MENU_PRINCIPAL = menu_doc.to_dict()
-            logger.info("✅ Menú principal cargado.")
         else:
-            MENU_PRINCIPAL = {}
-            logger.warning("⚠️ Documento 'menu_principal' no encontrado.")
-            
-        catalogo_doc = db.collection('configuracion').document('catalogo_productos').get()
-        if catalogo_doc.exists:
-            CATALOGO_PRODUCTOS = catalogo_doc.to_dict()
-            logger.info("✅ Catálogo de productos cargado.")
-        else:
-            CATALOGO_PRODUCTOS = {}
-            logger.warning("⚠️ Documento 'catalogo_productos' no encontrado.")
+            logger.warning("⚠️ Documento 'configuracion_general' no encontrado.")
 
-        menu_faq_doc = db.collection('configuracion').document('menu_faq').get()
-        if menu_faq_doc.exists:
-            MENU_FAQ = menu_faq_doc.to_dict()
-            logger.info("✅ Menú de FAQs cargado.")
-        else:
-            MENU_FAQ = {}
-            logger.warning("⚠️ Documento 'menu_faq' no encontrado.")
-
-        intents_doc = db.collection('configuracion').document('initial_intents').get()
-        if intents_doc.exists:
-            INITIAL_INTENTS = intents_doc.to_dict()
-            logger.info("✅ Intenciones iniciales cargadas.")
-        else:
-            logger.warning("⚠️ Documento 'initial_intents' no encontrado.")
-
-        # --- AÑADIDO PARA GOOGLE SHEETS ---
+        # --- CONEXIÓN CON GOOGLE SHEETS ---
         creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
         sheet_name = os.environ.get('GOOGLE_SHEET_NAME')
         if creds_json_str and sheet_name:
@@ -106,12 +86,11 @@ try:
             worksheet_pedidos = spreadsheet.worksheet("Pedidos")
             logger.info("✅ Conexión con Google Sheets establecida correctamente.")
         else:
-            logger.warning("⚠️ Faltan variables de entorno para Google Sheets. Las funciones relacionadas no operarán.")
+            logger.warning("⚠️ Faltan variables de entorno para Google Sheets.")
     else:
         logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
-
 except Exception as e:
-    logger.error(f"❌ Error crítico durante la inicialización de servicios: {e}")
+    logger.error(f"❌ Error crítico durante la inicialización: {e}")
 
 # ==========================================================
 # 2. CONFIGURACIÓN DEL NEGOCIO Y VARIABLES GLOBALES
@@ -131,7 +110,7 @@ YAPE_NUMERO = BUSINESS_DATA.get('yape_numero', 'YAPE_NO_CONFIGURADO')
 # ==============================================================================
 def send_whatsapp_message(to_number, message_data):
     if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
-        logger.error("Token de WhatsApp o ID de número de teléfono no configurados.")
+        logger.error("Token de WhatsApp o ID de número no configurados.")
         return
     headers = {'Authorization': f'Bearer {WHATSAPP_TOKEN}', 'Content-Type': 'application/json'}
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
@@ -139,7 +118,7 @@ def send_whatsapp_message(to_number, message_data):
     try:
         response = requests.post(url, headers=headers, json=data)
         response.raise_for_status()
-        logger.info(f"Mensaje enviado exitosamente a {to_number}.")
+        logger.info(f"Mensaje enviado a {to_number}.")
     except requests.exceptions.RequestException as e:
         logger.error(f"Error enviando mensaje a {to_number}: {e.response.text if e.response else e}")
 
@@ -150,32 +129,8 @@ def send_image_message(to_number, image_url):
     send_whatsapp_message(to_number, {"type": "image", "image": {"link": image_url}})
 
 def send_interactive_message(to_number, body_text, buttons):
-    if len(buttons) > 3:
-        logger.warning("Se intentó enviar un mensaje con más de 3 botones. Solo se usarán los primeros 3.")
-        buttons = buttons[:3]
-
-    button_payload = []
-    for button in buttons:
-        button_payload.append({
-            "type": "reply",
-            "reply": {
-                "id": button.get('id'),
-                "title": button.get('title')
-            }
-        })
-
-    message_data = {
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {
-                "text": body_text
-            },
-            "action": {
-                "buttons": button_payload
-            }
-        }
-    }
+    button_payload = [{"type": "reply", "reply": {"id": b.get('id'), "title": b.get('title')}} for b in buttons[:3]]
+    message_data = {"type": "interactive", "interactive": {"type": "button", "body": {"text": body_text}, "action": {"buttons": button_payload}}}
     send_whatsapp_message(to_number, message_data)
 
 # ==============================================================================
@@ -212,42 +167,34 @@ def save_completed_sale_and_customer(session_data):
         customer_id = session_data.get('whatsapp_id')
         precio_total = session_data.get('product_price', 0)
         adelanto = session_data.get('adelanto', 0)
-        saldo_restante = precio_total - adelanto
+        
         sale_data = {
-            "fecha": firestore.SERVER_TIMESTAMP,
-            "id_venta": sale_id,
-            "producto_id": session_data.get('product_id'),
-            "producto_nombre": session_data.get('product_name'),
-            "precio_venta": precio_total,
-            "tipo_envio": session_data.get('tipo_envio'),
-            "metodo_pago": session_data.get('metodo_pago'),
-            "provincia": session_data.get('provincia'),
-            "distrito": session_data.get('distrito'),
-            "detalles_cliente": session_data.get('detalles_cliente'),
-            "cliente_id": customer_id,
-            "estado_pedido": "Adelanto Pagado",
-            "adelanto_recibido": adelanto,
-            "saldo_restante": saldo_restante
+            "fecha": firestore.SERVER_TIMESTAMP, "id_venta": sale_id,
+            "producto_id": session_data.get('product_id'), "producto_nombre": session_data.get('product_name'),
+            "precio_venta": precio_total, "tipo_envio": session_data.get('tipo_envio'),
+            "metodo_pago": session_data.get('metodo_pago'), "provincia": session_data.get('provincia'),
+            "distrito": session_data.get('distrito'), "detalles_cliente": session_data.get('detalles_cliente'),
+            "cliente_id": customer_id, "estado_pedido": "Adelanto Pagado",
+            "adelanto_recibido": adelanto, "saldo_restante": precio_total - adelanto
         }
         db.collection('ventas').document(sale_id).set(sale_data)
-        logger.info(f"Venta {sale_id} guardada en Firestore.")
+        logger.info(f"Venta {sale_id} guardada.")
+        
         customer_data = {
             "nombre_perfil_wa": session_data.get('user_name'),
-            "provincia_ultimo_envio": session_data.get('provincia'),
-            "distrito_ultimo_envio": session_data.get('distrito'),
-            "detalles_ultimo_envio": session_data.get('detalles_cliente'),
-            "total_compras": firestore.Increment(1),
+            "provincia_ultimo_envio": session_data.get('provincia'), "distrito_ultimo_envio": session_data.get('distrito'),
+            "detalles_ultimo_envio": session_data.get('detalles_cliente'), "total_compras": firestore.Increment(1),
             "fecha_ultima_compra": firestore.SERVER_TIMESTAMP
         }
         db.collection('clientes').document(customer_id).set(customer_data, merge=True)
         logger.info(f"Cliente {customer_id} creado/actualizado.")
         return True, sale_data
     except Exception as e:
-        logger.error(f"Error guardando venta y cliente en Firestore: {e}")
+        logger.error(f"Error guardando venta y cliente: {e}")
         return False, None
 
 # ==============================================================================
-# 5. FUNCIONES AUXILIARES DE LÓGICA DE NEGOCIO
+# 5. FUNCIONES AUXILIARES Y DE FAQ
 # ==============================================================================
 def strip_accents(text):
     return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
@@ -255,301 +202,163 @@ def strip_accents(text):
 def normalize_and_check_district(text):
     clean_text = re.sub(r'soy de|vivo en|estoy en|es en|de', '', text, flags=re.IGNORECASE).strip()
     normalized_input = strip_accents(clean_text.lower())
+    
     abreviaturas = BUSINESS_RULES.get('abreviaturas_distritos', {})
     for abbr, full_name in abreviaturas.items():
         if abbr in normalized_input:
             normalized_input = strip_accents(full_name.lower())
             break
+            
     distritos_cobertura = BUSINESS_RULES.get('distritos_cobertura_delivery', [])
-    for distrito in distritos_cobertura:
-        if normalized_input in strip_accents(distrito.lower()):
-            return distrito.title(), 'CON_COBERTURA'
+    if any(normalized_input in strip_accents(d.lower()) for d in distritos_cobertura):
+        return next((d.title() for d in distritos_cobertura if normalized_input in strip_accents(d.lower())), None), 'CON_COBERTURA'
+        
     distritos_totales = BUSINESS_RULES.get('distritos_lima_total', [])
-    for distrito in distritos_totales:
-        if normalized_input in strip_accents(distrito.lower()):
-            return distrito.title(), 'SIN_COBERTURA'
+    if any(normalized_input in strip_accents(d.lower()) for d in distritos_totales):
+        return next((d.title() for d in distritos_totales if normalized_input in strip_accents(d.lower())), None), 'SIN_COBERTURA'
+        
     return None, 'NO_ENCONTRADO'
 
 def parse_province_district(text):
     clean_text = re.sub(r'soy de|vivo en|mi ciudad es|el distrito es', '', text, flags=re.IGNORECASE).strip()
-    separators = [',', '-', '/']
-    for sep in separators:
+    for sep in [',', '-', '/']:
         if sep in clean_text:
             parts = [part.strip() for part in clean_text.split(sep, 1)]
             return parts[0].title(), parts[1].title()
     return clean_text.title(), clean_text.title()
 
 def get_delivery_day_message():
-    weekday = datetime.now().weekday()
-    if weekday < 4: 
-        return BUSINESS_RULES.get('mensaje_dia_habil', 'mañana')
-    else: 
-        return BUSINESS_RULES.get('mensaje_fin_de_semana', 'el Lunes')
+    return BUSINESS_RULES.get('mensaje_dia_habil', 'mañana') if datetime.now().weekday() < 4 else BUSINESS_RULES.get('mensaje_fin_de_semana', 'el Lunes')
 
-def guardar_pedido_en_sheet(sale_data):
-    if not worksheet_pedidos:
-        logger.error("[Sheets] La conexión no está inicializada. No se puede guardar el pedido.")
-        return False
-    try:
-        nueva_fila = [
-            datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            sale_data.get('id_venta', 'N/A'),
-            sale_data.get('producto_nombre', 'N/A'),
-            sale_data.get('precio_venta', 0),
-            sale_data.get('tipo_envio', 'N/A'),
-            sale_data.get('metodo_pago', 'N/A'),
-            sale_data.get('adelanto_recibido', 0),
-            sale_data.get('saldo_restante', 0),
-            sale_data.get('provincia', 'N/A'),
-            sale_data.get('distrito', 'N/A'),
-            sale_data.get('detalles_cliente', 'N/A'),
-            sale_data.get('cliente_id', 'N/A')
-        ]
-        worksheet_pedidos.append_row(nueva_fila)
-        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado exitosamente.")
-        return True
-    except Exception as e:
-        logger.error(f"[Sheets] ERROR INESPERADO al guardar: {e}")
-        return False
-
-def get_last_question(state):
-    questions = {
-        "awaiting_occasion_response": "Cuéntame, ¿es un tesoro para ti o un regalo para alguien especial?",
-        "awaiting_purchase_decision": "¿Te gustaría coordinar tu pedido ahora para asegurar el tuyo? (Sí/No)",
-        "awaiting_upsell_decision": "Para continuar, por favor, respóndeme con una de estas dos palabras:\n👉🏽 Escribe *oferta* para ampliar tu pedido.\n👉🏽 Escribe *continuar* para llevar solo un collar.",
-        "awaiting_location": "Para empezar a coordinar el envío, por favor, dime: ¿eres de *Lima* o de *provincia*?",
-        "awaiting_lima_district": "¡Genial! ✨ Para saber qué tipo de envío te corresponde, por favor, dime: ¿en qué distrito te encuentras? 📍",
-        "awaiting_province_district": "¡Entendido! Para continuar, por favor, indícame tu *provincia y distrito*. ✍🏽\n\n📝 *Ej: Arequipa, Arequipa*",
-        "awaiting_shalom_agreement": "¿Estás de acuerdo con el adelanto? (Sí/No)",
-        "awaiting_lima_payment_agreement": "¿Procedemos? (Sí/No)",
-        "awaiting_lima_payment": "Una vez realizado, por favor, envíame la *captura de pantalla* para validar tu pedido.",
-        "awaiting_shalom_payment": "Una vez realizado, por favor, envíame la *captura de pantalla* para validar tu pedido.",
-        "awaiting_delivery_confirmation_lima": "Por favor, responde a este mensaje con la palabra *CONFIRMO* para asegurar tu entrega."
-    }
-    return questions.get(state)
-
-# ==============================================================================
-# 5.1. FUNCIÓN CENTRALIZADA DE FAQ (NUEVA SECCIÓN)
-# ==============================================================================
-def check_and_handle_faq(from_number, text, session):
-    if session and session.get('state') not in [
-        None, 
-        'awaiting_menu_choice', 
-        'awaiting_product_choice',
-        'awaiting_faq_choice'
-    ]:
-        return False
-        
+def check_and_handle_faq(from_number, text):
     text_lower = text.lower()
     for key, keywords in FAQ_KEYWORD_MAP.items():
         if any(keyword in text_lower for keyword in keywords):
             response_text = FAQ_RESPONSES.get(key)
-            if session:
-                if key == 'precio' and session.get('product_name'):
-                    response_text = f"¡Claro! El precio de tu pedido (*{session['product_name']}*) es de *S/ {session['product_price']:.2f}*, con envío gratis. 🚚"
-                elif key == 'stock' and session.get('product_name'):
-                    response_text = f"¡Sí, claro! Aún tenemos unidades del *{session['product_name']}*. ✨ ¿Iniciamos tu pedido?"
             if response_text:
                 send_text_message(from_number, response_text)
-                if session and (last_question := get_last_question(session.get('state'))):
-                    time.sleep(1)
-                    send_text_message(from_number, f"¡Espero haber aclarado tu duda! 😊 Continuando...\n\n{last_question}")
                 return True
     return False
 
-# ------------------------------------------------------------------------------
-# 5.2. FUNCIÓN PARA IDENTIFICAR INTENCIONES DE ANUNCIO
-# ------------------------------------------------------------------------------
-def find_matching_intent(text):
-    text_lower = text.lower()
-    for intent_id, intent_data in INITIAL_INTENTS.get('intents', {}).items():
-        if any(keyword in text_lower for keyword in intent_data.get('keywords', [])):
-            return intent_id
-    return None
+# ==============================================================================
+# 6. LÓGICA DE LA CONVERSACIÓN - ETAPA INICIAL
+# ==============================================================================
+def start_sales_flow(from_number, user_name, product_id):
+    """Función centralizada para iniciar un flujo de venta para un producto."""
+    product_doc = db.collection('productos').document(product_id).get()
+    if not product_doc.exists:
+        send_text_message(from_number, "Lo siento, hubo un problema al cargar la información del producto.")
+        return
+        
+    product_data = product_doc.to_dict()
+    
+    session_data = {
+        "state": "awaiting_occasion_response", "product_id": product_id,
+        "product_name": product_data.get('nombre'), "product_price": float(product_data.get('precio_base', 0)),
+        "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False
+    }
+    save_session(from_number, session_data)
+    
+    url_img = product_data.get('imagenes', {}).get('principal')
+    if url_img:
+        send_image_message(from_number, url_img)
+        time.sleep(1)
+    
+    # Llama directamente al siguiente paso de la conversación para mostrar los detalles
+    handle_occasion_response(from_number, "", session_data, product_data)
 
-# ==============================================================================
-# 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
-# ==============================================================================
 def handle_initial_message(from_number, user_name, text):
-    # --- CORRECCIÓN DE LÓGICA ---
-    # PRIMERO: Intentamos ver si el texto es un ID de producto directo (del menú del catálogo).
+    # 1. Lógica de Coincidencia Exacta para Anuncios (MÁXIMA PRIORIDAD)
+    frase_anuncio = "Quiero info del Collar Mágico Girasol Radiant"
+    if text == frase_anuncio:
+        logger.info(f"Coincidencia exacta de anuncio para: {from_number}")
+        start_sales_flow(from_number, user_name, "collar-girasol-radiant-01")
+        return
+
+    # 2. Revisa si es un ID de producto (del menú del catálogo)
     try:
-        product_doc = db.collection('productos').document(text).get()
-        if product_doc.exists:
-            product_data = product_doc.to_dict()
-            product_id = text # El texto es el ID del producto
-            
-            # Envía la imagen principal del producto
-            url_img = product_data.get('imagenes', {}).get('principal')
-            if url_img:
-                send_image_message(from_number, url_img)
-                time.sleep(1) # Pequeña pausa para que se sienta natural
-
-            # --- CORRECCIÓN CLAVE ---
-            # Ahora, busca y envía el mensaje de bienvenida asociado.
-            session_data = {
-                "state": "awaiting_occasion_response", # Estado inicial del flujo de compra
-                "product_id": product_id,
-                "product_name": product_data.get('nombre'),
-                "product_price": float(product_data.get('precio_base', 0)),
-                "user_name": user_name,
-                "whatsapp_id": from_number,
-                "is_upsell": False
-            }
-            
-            # Usamos el mensaje de bienvenida genérico para iniciar el flujo
-            mensaje_personalizado = INITIAL_INTENTS.get('responses', {}).get('girasol_general_response')
-            if mensaje_personalizado:
-                mensaje_final = mensaje_personalizado.replace("{user_name}", user_name)
-                send_text_message(from_number, mensaje_final)
-
-            save_session(from_number, session_data)
-            return # Termina la ejecución aquí porque ya encontramos una acción.
-    except Exception as e:
-        logger.info(f"El texto '{text}' no es un ID de producto. Continuando con la lógica normal.")
-    
-    # --- CORRECCIÓN DE PRIORIDAD ---
-    # SEGUNDO: Si no fue un ID, buscamos si es un mensaje de un anuncio.
-    intent_id = find_matching_intent(text)
-    if intent_id:
-        intent_info = INITIAL_INTENTS.get('intents', {}).get(intent_id, {})
-        product_id = intent_info.get('product_id')
-        
-        product_doc_intent = db.collection('productos').document(product_id).get()
-        product_data_intent = product_doc_intent.to_dict() if product_doc_intent.exists else None
-        
-        if not product_data_intent:
-            send_text_message(from_number, "Lo siento, hubo un problema con el producto.")
+        if db.collection('productos').document(text).get().exists:
+            logger.info(f"ID de producto del catálogo detectado: {text}")
+            start_sales_flow(from_number, user_name, text)
             return
-
-        url_img_intent = product_data_intent.get('imagenes', {}).get('principal')
-        if url_img_intent:
-            send_image_message(from_number, url_img_intent)
-            time.sleep(1)
-
-        session_data = {
-            "state": intent_info.get('state_after_intro'),
-            "product_id": product_id,
-            "product_name": product_data_intent.get('nombre'),
-            "product_price": float(product_data_intent.get('precio_base', 0)),
-            "user_name": user_name,
-            "whatsapp_id": from_number,
-            "is_upsell": False
-        }
-        
-        mensaje_personalizado = INITIAL_INTENTS.get('responses', {}).get('girasol_general_response')
-        if mensaje_personalizado:
-            mensaje_final = mensaje_personalizado.replace("{user_name}", user_name)
-            send_text_message(from_number, mensaje_final)
-
-        save_session(from_number, session_data)
-        return # Termina la ejecución aquí.
+    except Exception:
+        pass # No es un ID de producto, continúa
     
-    # TERCERO: Si no fue un anuncio, revisamos si es una FAQ.
-    if check_and_handle_faq(from_number, text, None):
-        return # Termina la ejecución aquí.
+    # 3. Revisa si es una pregunta frecuente (FAQ)
+    if check_and_handle_faq(from_number, text):
+        return
         
-    # CUARTO: Si no fue nada de lo anterior, se ejecuta el flujo normal de bienvenida.
+    # 4. Si no fue nada de lo anterior, muestra el menú principal
     if MENU_PRINCIPAL:
-        welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! v2 ¿Cómo puedo ayudarte?')
+        welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
         botones = [{'id': '1', 'title': '🛍️ Ver Colección'}, {'id': '2', 'title': '❓ Preguntas'}]
         send_interactive_message(from_number, welcome_message, botones)
         save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
     else:
         send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*.")
 
-
 def handle_menu_choice(from_number, text, session, product_data):
     choice = text.strip()
-    
     if choice == '1':
         if CATALOGO_PRODUCTOS:
-            mensaje_catalogo = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
-            catalogo_texto = "\n".join([f"{idx}️⃣ {value.get('nombre', '')}" for idx, (key, value) in enumerate(sorted(CATALOGO_PRODUCTOS.items()), 1)])
-            
-            send_text_message(from_number, f"{mensaje_catalogo}\n\n{catalogo_texto}")
-            save_session(from_number, {"state": "awaiting_product_choice"})
+            mensaje = "¡Genial! Estas son nuestras colecciones. Elige una para ver detalles:"
+            catalogo_texto = "\n".join([f"{idx}️⃣ {v.get('nombre', '')}" for idx, (k, v) in enumerate(sorted(CATALOGO_PRODUCTOS.items()), 1)])
+            send_text_message(from_number, f"{mensaje}\n\n{catalogo_texto}")
+            session['state'] = 'awaiting_product_choice'
+            save_session(from_number, session)
         else:
-            send_text_message(from_number, "Lo siento, no pude cargar el catálogo en este momento.")
-
+            send_text_message(from_number, "Lo siento, no pude cargar el catálogo.")
     elif choice == '2':
         if MENU_FAQ:
-            mensaje_faq = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
-            faq_texto = "\n".join([f"{key}️⃣ {value.get('pregunta', '')}" for key, value in sorted(MENU_FAQ.items())])
-
-            send_text_message(from_number, f"{mensaje_faq}\n\n{faq_texto}")
-            save_session(from_number, {"state": "awaiting_faq_choice"})
+            mensaje = "¡Claro! Nuestras dudas más comunes. Elige una para ver la respuesta:"
+            faq_texto = "\n".join([f"{k}️⃣ {v.get('pregunta', '')}" for k, v in sorted(MENU_FAQ.items())])
+            send_text_message(from_number, f"{mensaje}\n\n{faq_texto}")
+            session['state'] = 'awaiting_faq_choice'
+            save_session(from_number, session)
         else:
-            send_text_message(from_number, "Lo siento, no pude cargar las preguntas frecuentes.")
+            send_text_message(from_number, "Lo siento, no pude cargar las preguntas.")
     else:
-        send_text_message(from_number, "Opción no válida. Por favor, elige una de las opciones del menú.")
-
+        send_text_message(from_number, "Opción no válida. Elige una del menú.")
 
 def handle_product_choice(from_number, text, session, product_data):
     choice = text.strip()
-    
     product_list = sorted(CATALOGO_PRODUCTOS.items())
-    
     if choice.isdigit() and 0 < int(choice) <= len(product_list):
-        # El [1] es para obtener el diccionario de datos del producto
         product_info = product_list[int(choice) - 1][1] 
-        
-        if product_info and product_info.get('product_id'):
-            product_id = product_info.get('product_id')
-            user_name = session.get('user_name', 'Usuario')
-            # Llamamos a handle_initial_message con el ID del producto.
-            # La función corregida ahora sabrá qué hacer.
-            handle_initial_message(from_number, user_name, product_id)
+        if product_id := product_info.get('product_id'):
+            handle_initial_message(from_number, session.get('user_name', 'Usuario'), product_id)
             return
-
-    send_text_message(from_number, "Opción no válida. Por favor, elige un número del catálogo.")
+    send_text_message(from_number, "Opción no válida. Elige un número del catálogo.")
 
 def handle_faq_choice(from_number, text, session, product_data):
     choice = text.strip()
-    
     faq_info = MENU_FAQ.get(choice)
-    
-    if faq_info and faq_info.get('clave_respuesta'):
-        clave_respuesta = faq_info.get('clave_respuesta')
-        respuesta_final = FAQ_RESPONSES.get(clave_respuesta, "Lo siento, no encontré una respuesta para esa pregunta.")
-        send_text_message(from_number, respuesta_final)
-        # Borramos la sesión para que el usuario pueda hacer otra cosa
+    if faq_info and (clave := faq_info.get('clave_respuesta')):
+        respuesta = FAQ_RESPONSES.get(clave, "No encontré una respuesta.")
+        send_text_message(from_number, respuesta)
         delete_session(from_number)
     else:
-        send_text_message(from_number, "Opción no válida. Por favor, elige un número del menú de preguntas.")
+        send_text_message(from_number, "Opción no válida. Elige un número del menú.")
 
 # ==============================================================================
-# 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA CON BOTONES)
+# 7. LÓGICA DE LA CONVERSACIÓN - ETAPA 2 (FLUJO DE COMPRA)
 # ==============================================================================
 def handle_occasion_response(from_number, text, session, product_data):
-    url_imagen_empaque = product_data.get('imagenes', {}).get('empaque')
     detalles = product_data.get('detalles', {})
-    material = detalles.get('material', 'material de alta calidad')
-    presentacion = detalles.get('empaque', 'viene en una hermosa caja de regalo')
-    
-    if url_imagen_empaque:
-        send_image_message(from_number, url_imagen_empaque)
-        time.sleep(1)
-        
-    mensaje_persuasion_1 = (f"¡Maravillosa elección! ✨ El *Collar Mágico Girasol Radiant* es pura energía. Aquí tienes todos los detalles:\n\n"
-                            f"💎 *Material:* {material} ¡Hipoalgénico y no se oscurece!\n"
-                            f"🔮 *La Magia:* Su piedra central es termocromática, cambia de color con tu temperatura.\n"
-                            f"🎁 *Presentación:* {presentacion}")
+    mensaje_persuasion_1 = (f"¡Maravillosa elección! ✨ El *{product_data.get('nombre')}* es pura energía. Aquí tienes todos los detalles:\n\n"
+                            f"💎 *Material:* {detalles.get('material', 'alta calidad')}\n"
+                            f"🔮 *La Magia:* {detalles.get('magia', 'una pieza única')}\n"
+                            f"🎁 *Presentación:* {detalles.get('empaque', 'incluye empaque de regalo')}")
     send_text_message(from_number, mensaje_persuasion_1)
     time.sleep(1.5)
     
     mensaje_persuasion_2 = (f"Para tu total seguridad, somos Daaqui Joyas, un negocio formal con *RUC {RUC_EMPRESA}*. ¡Tu compra es 100% segura! 🇵🇪\n\n"
                             "¿Te gustaría coordinar tu pedido ahora para asegurar el tuyo?")
-    
-    botones = [
-        {'id': 'si_coordinar', 'title': '✅ Sí, coordinar'},
-        {'id': 'no_gracias', 'title': 'No, gracias'}
-    ]
+    botones = [{'id': 'si_coordinar', 'title': '✅ Sí, coordinar'}, {'id': 'no_gracias', 'title': 'No, gracias'}]
     send_interactive_message(from_number, mensaje_persuasion_2, botones)
-    
     session['state'] = 'awaiting_purchase_decision'
     save_session(from_number, session)
-
+    
 def handle_purchase_decision(from_number, text, session, product_data):
     if text == 'si_coordinar':
         url_imagen_upsell = product_data.get('imagenes', {}).get('upsell')
@@ -566,12 +375,8 @@ def handle_purchase_decision(from_number, text, session, product_data):
         time.sleep(1.5)
         
         mensaje_decision = "Para continuar con tu pedido, ¿cuál será tu elección?"
-        botones = [
-            {'id': 'oferta', 'title': '🔥 Quiero la oferta'},
-            {'id': 'continuar', 'title': 'Continuar con uno'}
-        ]
+        botones = [{'id': 'oferta', 'title': '🔥 Quiero la oferta'}, {'id': 'continuar', 'title': 'Continuar con uno'}]
         send_interactive_message(from_number, mensaje_decision, botones)
-        
         session['state'] = 'awaiting_upsell_decision'
         save_session(from_number, session)
     else:
@@ -589,12 +394,8 @@ def handle_upsell_decision(from_number, text, session, product_data):
     time.sleep(1)
     
     mensaje = "¡Perfecto! Tu joya está casi en camino. Para coordinar tu envío gratis, indícame si el envío es para:"
-    botones = [
-        {'id': 'lima', 'title': '📍 Lima'},
-        {'id': 'provincia', 'title': '🚚 Provincia'}
-    ]
+    botones = [{'id': 'lima', 'title': '📍 Lima'}, {'id': 'provincia', 'title': '🚚 Provincia'}]
     send_interactive_message(from_number, mensaje, botones)
-
     session['state'] = 'awaiting_location'
     save_session(from_number, session)
 
@@ -618,14 +419,9 @@ def handle_province_district(from_number, text, session, product_data):
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     
     mensaje = (f"¡Genial! Prepararemos tu envío para *{provincia}* vía Shalom. "
-               f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. "
-               f"Para asegurar y priorizar tu paquete en la próxima salida, solicitamos un adelanto de S/ {adelanto:.2f} como compromiso de recojo.\n\n"
+               f"Para asegurar tu paquete en la próxima salida, solicitamos un adelanto de S/ {adelanto:.2f} como compromiso de recojo.\n\n"
                "¿Procedemos?")
-    
-    botones = [
-        {'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'},
-        {'id': 'no_acuerdo', 'title': 'No en este momento'}
-    ]
+    botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
     send_interactive_message(from_number, mensaje, botones)
     session['state'] = 'awaiting_shalom_agreement'
     save_session(from_number, session)
@@ -638,18 +434,15 @@ def handle_lima_district(from_number, text, session, product_data):
             session.update({"state": "awaiting_delivery_details", "tipo_envio": "Lima Contra Entrega", "metodo_pago": "Contra Entrega (Efectivo/Yape/Plin)"})
             save_session(from_number, session)
             mensaje = (f"¡Excelente! Tenemos cobertura en *{distrito}*. 🏙️\n\n"
-                       "Para registrar tu pedido, envíame en *un solo mensaje* tu *Nombre Completo, Dirección exacta* y una *Referencia*.\n\n"
-                       "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501, La Victoria. Al lado de la farmacia.*")
+                       "Para registrar tu pedido, envíame en *un solo mensaje* tu *Nombre, Dirección exacta* y *Referencia*.\n\n"
+                       "📝 *Ej: Ana Pérez, Jr. Gamarra 123, Depto 501. Al lado de la farmacia.*")
             send_text_message(from_number, mensaje)
         elif status == 'SIN_COBERTURA':
             session.update({"tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"})
             adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-            
             mensaje = (f"¡Genial! Prepararemos tu envío para *{distrito}* vía *Shalom*. "
-                       f"Nuestros despachos se están agendando rápidamente ⚠️. "
-                       f"Para asegurar y priorizar tu paquete en la próxima salida, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
+                       f"Para asegurar tu paquete, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
                        "¿Procedemos?")
-
             botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
             send_interactive_message(from_number, mensaje, botones)
             session['state'] = 'awaiting_shalom_agreement'
@@ -668,11 +461,7 @@ def handle_customer_details(from_number, text, session, product_data):
                f"*Datos de Entrega*\n"
                f"{session.get('detalles_cliente', '')}\n\n"
                "¿Confirmas que todo es correcto?")
-    
-    botones = [
-        {'id': 'si_correcto', 'title': '✅ Sí, todo correcto'},
-        {'id': 'corregir', 'title': '📝 Corregir datos'}
-    ]
+    botones = [{'id': 'si_correcto', 'title': '✅ Sí, todo correcto'}, {'id': 'corregir', 'title': '📝 Corregir datos'}]
     send_interactive_message(from_number, resumen, botones)
     session['state'] = 'awaiting_final_confirmation'
     save_session(from_number, session)
@@ -682,11 +471,7 @@ def handle_shalom_agreement(from_number, text, session, product_data):
         session['state'] = 'awaiting_shalom_experience'
         save_session(from_number, session)
         mensaje = "¡Genial! Para hacer el proceso más fácil, cuéntame: ¿alguna vez has recogido un pedido en una agencia Shalom? 🙋🏽‍♀️"
-        
-        botones = [
-            {'id': 'si_conozco', 'title': '✅ Sí, ya conozco'},
-            {'id': 'no_conozco', 'title': 'No, explícame más'}
-        ]
+        botones = [{'id': 'si_conozco', 'title': '✅ Sí, ya conozco'}, {'id': 'no_conozco', 'title': 'No, explícame más'}]
         send_interactive_message(from_number, mensaje, botones)
     else:
         delete_session(from_number)
@@ -696,45 +481,32 @@ def handle_shalom_experience(from_number, text, session, product_data):
     if text == 'si_conozco':
         session['state'] = 'awaiting_shalom_details'
         save_session(from_number, session)
-        mensaje = ("¡Excelente! Entonces ya conoces el proceso. ✅\n\n"
-                   "Para terminar, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección exacta de la agencia Shalom* donde recogerás. ✍🏽\n\n"
+        mensaje = ("¡Excelente! Para terminar, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de la agencia Shalom* donde recogerás. ✍🏽\n\n"
                    "📝 *Ej: Juan Quispe, 45678901, Av. Pardo 123, Miraflores.*")
         send_text_message(from_number, mensaje)
     else: # 'no_conozco'
         session['state'] = 'awaiting_shalom_agency_knowledge'
         save_session(from_number, session)
-        mensaje = ("¡No te preocupes! Te explico: Shalom es una empresa de envíos. Te damos un código de seguimiento, y cuando tu pedido llega a la agencia, nos yapeas el saldo restante. Apenas confirmemos, te damos la clave secreta para el recojo. ¡Es 100% seguro! 🔒\n\n"
-                   "¿Conoces la dirección de alguna agencia Shalom cerca a ti?")
-        
-        botones = [
-            {'id': 'shalom_knows_addr_yes', 'title': 'Sí, la conozco'},
-            {'id': 'shalom_knows_addr_no', 'title': 'No, necesito buscar'}
-        ]
+        mensaje = ("¡No te preocupes! Es 100% seguro. Te damos un código de seguimiento, y cuando tu pedido llega a la agencia, yapeas el saldo restante y te damos la clave para el recojo. ¿Conoces la dirección de alguna agencia Shalom cerca a ti?")
+        botones = [{'id': 'shalom_knows_addr_yes', 'title': 'Sí, la conozco'}, {'id': 'shalom_knows_addr_no', 'title': 'No, necesito buscar'}]
         send_interactive_message(from_number, mensaje, botones)
 
 def handle_shalom_agency_knowledge(from_number, text, session, product_data):
     if text == 'shalom_knows_addr_yes':
         session['state'] = 'awaiting_shalom_details'
         save_session(from_number, session)
-        mensaje = ("¡Perfecto! Por favor, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽\n\n"
-                   "📝 *Ej: Carlos Ruiz, 87654321, Jr. Gamarra 456, Trujillo.*")
+        mensaje = ("¡Perfecto! Bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽")
         send_text_message(from_number, mensaje)
     else: # 'shalom_knows_addr_no'
         delete_session(from_number)
-        send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. Cuando la tengas, puedes iniciar la conversación de nuevo. ¡Gracias por tu interés!")
+        send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. Cuando la tengas, puedes iniciar la conversación de nuevo. ¡Gracias!")
 
 def handle_final_confirmation(from_number, text, session, product_data):
     if text == 'si_correcto':
         if session.get('tipo_envio') == 'Lima Contra Entrega':
             adelanto = float(BUSINESS_RULES.get('adelanto_lima_delivery', 10))
             session.update({'adelanto': adelanto})
-            mensaje = (
-                "¡Perfecto! Tu pedido contra entrega está listo para ser agendado. ✨\n\n"
-                "Nuestras rutas de reparto para mañana 🚚 ya se están llenando y tenemos *cupos limitados* ⚠️. Para asegurar tu espacio y priorizar tu entrega, solo solicitamos un adelanto de *S/ 10.00*.\n\n"
-                "Este pequeño monto confirma tu compromiso y nos permite seguir ofreciendo *envío gratis* a clientes serios como tú. Por supuesto, se descuenta del total.\n\n"
-                "👉 ¿Procedemos para reservar tu lugar?"
-            )
-            
+            mensaje = (f"¡Perfecto! Para asegurar tu cupo en la ruta de mañana 🚚, solicitamos un adelanto de *S/ {adelanto:.2f}*. ¿Procedemos?")
             botones = [{'id': 'si_proceder', 'title': 'Sí, reservar ahora'}, {'id': 'no_proceder', 'title': 'No, gracias'}]
             send_interactive_message(from_number, mensaje, botones)
             session['state'] = 'awaiting_lima_payment_agreement'
@@ -743,17 +515,16 @@ def handle_final_confirmation(from_number, text, session, product_data):
             adelanto = float(BUSINESS_RULES.get('adelanto_shalom', 20))
             session.update({'adelanto': adelanto, 'state': 'awaiting_shalom_payment'})
             save_session(from_number, session)
-            mensaje = (f"¡Genial! Puedes realizar el adelanto de *S/ {adelanto:.2f}* a nuestra cuenta:\n\n"
+            mensaje = (f"¡Genial! Puedes realizar el adelanto de *S/ {adelanto:.2f}* a:\n\n"
                        f"💳 *YAPE / PLIN:* {YAPE_NUMERO}\n"
-                       f"👤 *Titular:* {TITULAR_YAPE}\n"
-                       f"🔒 Tu compra es 100% segura (*RUC {RUC_EMPRESA}*).\n\n"
-                       "Una vez realizado, envíame la *captura de pantalla* para validar tu pedido.")
+                       f"👤 *Titular:* {TITULAR_YAPE}\n\n"
+                       "Una vez realizado, envíame la *captura de pantalla* para validar.")
             send_text_message(from_number, mensaje)
     else: # 'corregir'
         previous_state = 'awaiting_delivery_details' if session.get('tipo_envio') == 'Lima Contra Entrega' else 'awaiting_shalom_details'
         session['state'] = previous_state
         save_session(from_number, session)
-        send_text_message(from_number, "¡Claro, lo corregimos! 😊 Por favor, envíame nuevamente la información de envío completa en un solo mensaje.")
+        send_text_message(from_number, "¡Claro, lo corregimos! 😊 Envíame nuevamente la información completa en un solo mensaje.")
 
 def handle_lima_payment_agreement(from_number, text, session, product_data):
     if text == 'si_proceder':
@@ -772,61 +543,50 @@ def handle_payment_received(from_number, text, session, product_data):
     if text == "COMPROBANTE_RECIBIDO":
         guardado_exitoso, sale_data = save_completed_sale_and_customer(session)
         if guardado_exitoso:
-            guardar_pedido_en_sheet(sale_data)
+            guardar_pedido_en_sheet(sale_data) # Asumiendo que esta función existe
             if ADMIN_WHATSAPP_NUMBER:
-                admin_message = (f"🎉 ¡Nueva Venta Confirmada! 🎉\n\n"
-                                 f"Producto: {sale_data.get('producto_nombre')}\n"
-                                 f"Tipo: {sale_data.get('tipo_envio')}\n"
-                                 f"Cliente WA ID: {sale_data.get('cliente_id')}\n"
-                                 f"Detalles:\n{sale_data.get('detalles_cliente')}")
+                admin_message = (f"🎉 ¡Nueva Venta Confirmada! 🎉\n"
+                                 f"Producto: {sale_data.get('producto_nombre')}\nTipo: {sale_data.get('tipo_envio')}\n"
+                                 f"Cliente: {sale_data.get('cliente_id')}\nDetalles:\n{sale_data.get('detalles_cliente')}")
                 send_text_message(ADMIN_WHATSAPP_NUMBER, admin_message)
+                
             if session.get('tipo_envio') == 'Lima Contra Entrega':
                 dia_entrega = get_delivery_day_message()
                 horario = BUSINESS_RULES.get('horario_entrega_lima', 'durante el día')
-                mensaje_resumen = (f"¡Adelanto confirmado, gracias! ✨ Aquí tienes el resumen final de tu pedido y los detalles de la entrega:\n\n"
-                                   f"*Tu Pedido en Detalle:*\n"
-                                   f"💰 Costo Total: S/ {sale_data.get('precio_venta', 0):.2f}\n"
-                                   f"✅ Adelanto Recibido: - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
-                                   f"------------------------------------\n"
-                                   f"💵 *Saldo a Pagar al recibir: S/ {sale_data.get('saldo_restante', 0):.2f}*\n\n"
+                mensaje_resumen = (f"¡Adelanto confirmado! ✨ Resumen final:\n\n"
+                                   f"*Total:* S/ {sale_data.get('precio_venta', 0):.2f}\n"
+                                   f"*Adelanto:* - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
+                                   f"*Saldo a Pagar:* S/ {sale_data.get('saldo_restante', 0):.2f}\n\n"
                                    f"*Entrega Programada:*\n"
                                    f"🗓️ Día: {dia_entrega.title()}\n"
                                    f"⏰ Horario: {horario}\n\n"
-                                   f"A continuación, te pediré un último paso para asegurar tu envío.")
+                                   "A continuación, el último paso para asegurar tu envío.")
                 send_text_message(from_number, mensaje_resumen)
                 time.sleep(1.5)
-                mensaje_solicitud = (f"¡Ya casi es tuya! 💎\n\n"
-                                     f"Para garantizar una entrega exitosa *{dia_entrega}*, por favor confirma que habrá alguien disponible para recibir tu joya y pagar el saldo 💵.")
-                
+                mensaje_solicitud = (f"Para garantizar la entrega *{dia_entrega}*, por favor confirma que habrá alguien para recibir y pagar el saldo.")
                 botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
                 send_interactive_message(from_number, mensaje_solicitud, botones)
-
                 session['state'] = 'awaiting_delivery_confirmation_lima'
                 save_session(from_number, session)
-
             else: # Shalom
-                resumen_shalom = (f"¡Adelanto confirmado, gracias! ✨ Aquí tienes el resumen final de tu pedido:\n\n"
-                                  f"*Tu Pedido en Detalle:*\n"
-                                  f"💰 Costo Total: S/ {sale_data.get('precio_venta', 0):.2f}\n"
-                                  f"✅ Adelanto Recibido: - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
-                                  f"------------------------------------\n"
-                                  f"💵 *Saldo a Pagar: S/ {sale_data.get('saldo_restante', 0):.2f}*")
+                resumen_shalom = (f"¡Adelanto confirmado! ✨ Resumen final:\n\n"
+                                  f"*Total:* S/ {sale_data.get('precio_venta', 0):.2f}\n*Adelanto:* - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
+                                  f"*Saldo a Pagar:* S/ {sale_data.get('saldo_restante', 0):.2f}")
                 send_text_message(from_number, resumen_shalom)
                 time.sleep(1.5)
                 tiempo_entrega = "1-2 días hábiles" if session.get('tipo_envio') == 'Lima Shalom' else "3-5 días hábiles"
                 proximos_pasos = (f"📝 *Próximos Pasos:*\n\n"
-                                  f"⏳ En las próximas 24h hábiles te enviaremos tu código de seguimiento 📲. El tiempo de entrega en agencia es de *{tiempo_entrega}* 📦.")
+                                  f"En las próximas 24h hábiles te enviaremos tu código de seguimiento. El tiempo de entrega es de *{tiempo_entrega}*.")
                 send_text_message(from_number, proximos_pasos)
                 delete_session(from_number)
         else:
-            send_text_message(from_number, "¡Uy! Hubo un problema al registrar tu pedido. Un asesor se pondrá en contacto contigo.")
+            send_text_message(from_number, "¡Uy! Hubo un problema al registrar tu pedido. Un asesor se pondrá en contacto.")
     else:
         send_text_message(from_number, "Estoy esperando la *captura de pantalla* de tu pago. 😊")
 
 def handle_delivery_confirmation_lima(from_number, text, session, product_data):
     if 'confirmo' in text.lower() or text == 'confirmo_entrega_lima':
-        mensaje_final = ("¡Listo! ✅ Tu pedido ha sido *confirmado en la ruta* 🚚.\n\n"
-                         "De parte de todo el equipo de *Daaqui Joyas*, ¡muchas gracias por tu compra! 🎉😊")
+        mensaje_final = ("¡Listo! ✅ Tu pedido ha sido *confirmado en la ruta* 🚚. ¡Muchas gracias por tu compra! 🎉😊")
         send_text_message(from_number, mensaje_final)
         delete_session(from_number)
     else:
@@ -834,68 +594,22 @@ def handle_delivery_confirmation_lima(from_number, text, session, product_data):
         botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
         send_interactive_message(from_number, mensaje_solicitud, botones)
 
-# ------------------------------------------------------------------------------
-# 7.2. Diccionario de Despacho y Función Principal del Flujo
-# ------------------------------------------------------------------------------
-
+# ==============================================================================
+# 8. MANEJADOR CENTRAL Y WEBHOOK
+# ==============================================================================
 STATE_HANDLERS = {
-    "awaiting_menu_choice": handle_menu_choice,
-    "awaiting_product_choice": handle_product_choice,
-    "awaiting_faq_choice": handle_faq_choice,
-    "awaiting_occasion_response": handle_occasion_response,
-    "awaiting_purchase_decision": handle_purchase_decision,
-    "awaiting_upsell_decision": handle_upsell_decision,
-    "awaiting_location": handle_location,
-    "awaiting_province_district": handle_province_district,
-    "awaiting_lima_district": handle_lima_district,
-    "awaiting_delivery_details": handle_customer_details,
-    "awaiting_shalom_details": handle_customer_details,
-    "awaiting_shalom_agreement": handle_shalom_agreement,
-    "awaiting_shalom_experience": handle_shalom_experience,
-    "awaiting_shalom_agency_knowledge": handle_shalom_agency_knowledge,
-    "awaiting_final_confirmation": handle_final_confirmation,
-    "awaiting_lima_payment_agreement": handle_lima_payment_agreement,
-    "awaiting_lima_payment": handle_payment_received,
-    "awaiting_shalom_payment": handle_payment_received,
+    "awaiting_menu_choice": handle_menu_choice, "awaiting_product_choice": handle_product_choice,
+    "awaiting_faq_choice": handle_faq_choice, "awaiting_occasion_response": handle_occasion_response,
+    "awaiting_purchase_decision": handle_purchase_decision, "awaiting_upsell_decision": handle_upsell_decision,
+    "awaiting_location": handle_location, "awaiting_province_district": handle_province_district,
+    "awaiting_lima_district": handle_lima_district, "awaiting_delivery_details": handle_customer_details,
+    "awaiting_shalom_details": handle_customer_details, "awaiting_shalom_agreement": handle_shalom_agreement,
+    "awaiting_shalom_experience": handle_shalom_experience, "awaiting_shalom_agency_knowledge": handle_shalom_agency_knowledge,
+    "awaiting_final_confirmation": handle_final_confirmation, "awaiting_lima_payment_agreement": handle_lima_payment_agreement,
+    "awaiting_lima_payment": handle_payment_received, "awaiting_shalom_payment": handle_payment_received,
     "awaiting_delivery_confirmation_lima": handle_delivery_confirmation_lima,
 }
 
-def handle_sales_flow(from_number, text, session):
-    current_state = session.get('state')
-    handler_func = STATE_HANDLERS.get(current_state)
-
-    if not handler_func:
-        logger.warning(f"No se encontró un manejador para el estado: {current_state} del usuario {from_number}")
-        if not check_and_handle_faq(from_number, text, session):
-            send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
-        return
-        
-    # --- LÓGICA DE PRODUCTO REESTRUCTURADA ---
-    product_data = None
-    # Si no estamos en un estado inicial que no requiere producto, lo cargamos
-    if current_state not in ["awaiting_menu_choice", "awaiting_product_choice", "awaiting_faq_choice"]:
-        product_id = session.get('product_id')
-        if not product_id:
-            send_text_message(from_number, "Hubo un problema con tu sesión. Por favor, empieza de nuevo escribiendo 'cancelar'.")
-            return
-        try:
-            product_doc = db.collection('productos').document(product_id).get()
-            if not product_doc.exists:
-                send_text_message(from_number, "Lo siento, este producto ya no está disponible. Por favor, empieza de nuevo.")
-                delete_session(from_number)
-                return
-            product_data = product_doc.to_dict()
-        except Exception as e:
-            logger.error(f"Error al obtener producto {product_id}: {e}")
-            send_text_message(from_number, "Tuvimos un problema al consultar el producto. Inténtalo de nuevo.")
-            return
-
-    # Ejecutamos la función correspondiente al estado con los datos del producto (o None si no aplica)
-    handler_func(from_number, text, session, product_data)
-
-# ==============================================================================
-# 8. WEBHOOK PRINCIPAL Y PROCESADOR DE MENSAJES
-# ==============================================================================
 @app.route('/api/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
@@ -913,7 +627,7 @@ def webhook():
                             try:
                                 process_message(message, value.get('contacts', []))
                             except Exception as e:
-                                logger.error(f"Error procesando un mensaje individual: {e}")
+                                logger.error(f"Error procesando un mensaje: {e}")
     return jsonify({'status': 'success'}), 200
 
 def process_message(message, contacts):
@@ -921,20 +635,16 @@ def process_message(message, contacts):
     user_name = next((c.get('profile', {}).get('name', 'Usuario') for c in contacts if c.get('wa_id') == from_number), 'Usuario')
     session = get_session(from_number)
     
-    message_type = message.get('type')
     text_body = ""
+    message_type = message.get('type')
     if message_type == 'text':
         text_body = message.get('text', {}).get('body', '')
     elif message_type == 'interactive' and message.get('interactive', {}).get('type') == 'button_reply':
         text_body = message.get('interactive', {}).get('button_reply', {}).get('id', '')
-    elif message_type == 'image':
-        if session and session.get('state') in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
-            text_body = "COMPROBANTE_RECIBIDO"
-        else:
-            text_body = "_Imagen Recibida_"
+    elif message_type == 'image' and session and session.get('state') in ['awaiting_lima_payment', 'awaiting_shalom_payment']:
+        text_body = "COMPROBANTE_RECIBIDO"
     else:
-        send_text_message(from_number, "Por ahora solo puedo procesar mensajes de texto, botones e imágenes. 😊")
-        return
+        return # Ignora otros tipos de mensajes
 
     logger.info(f"Procesando de {user_name} ({from_number}): '{text_body}'")
 
@@ -952,22 +662,39 @@ def process_message(message, contacts):
         last_update_time = session['last_updated']
         if last_update_time.tzinfo is None: last_update_time = last_update_time.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - last_update_time > timedelta(hours=2):
-            logger.info(f"Sesión expirada por inactividad para {from_number}. Eliminando.")
             delete_session(from_number)
             send_text_message(from_number, "Hola de nuevo. 😊 Parece que ha pasado un tiempo. Si necesitas algo, no dudes en preguntar.")
             handle_initial_message(from_number, user_name, text_body)
             return
 
-    handle_sales_flow(from_number, text_body, session)
+    current_state = session.get('state')
+    handler_func = STATE_HANDLERS.get(current_state)
+
+    if handler_func:
+        product_data = None
+        if current_state not in ["awaiting_menu_choice", "awaiting_product_choice", "awaiting_faq_choice"]:
+            if product_id := session.get('product_id'):
+                product_doc = db.collection('productos').document(product_id).get()
+                if product_doc.exists:
+                    product_data = product_doc.to_dict()
+                else:
+                    send_text_message(from_number, "Lo siento, este producto ya no está disponible.")
+                    delete_session(from_number); return
+            else:
+                send_text_message(from_number, "Hubo un problema con tu sesión. Empieza de nuevo.")
+                delete_session(from_number); return
+        handler_func(from_number, text_body, session, product_data)
+    else:
+        logger.warning(f"No se encontró manejador para el estado: {current_state}")
+        send_text_message(from_number, "Estoy un poco confundido. Si deseas reiniciar, escribe 'cancelar'.")
 
 # ==============================================================================
-# 9. ENDPOINT PARA AUTOMATIZACIONES (MAKE.COM)
+# 9. ENDPOINTS PARA AUTOMATIZACIONES (MAKE.COM)
 # ==============================================================================
 @app.route('/api/send-tracking', methods=['POST'])
 def send_tracking_code():
     auth_header = request.headers.get('Authorization')
     if not auth_header or auth_header != f'Bearer {MAKE_SECRET_TOKEN}':
-        logger.warning("Acceso no autorizado a /api/send-tracking")
         return jsonify({'error': 'No autorizado'}), 401
     
     data = request.get_json()
@@ -976,63 +703,48 @@ def send_tracking_code():
     codigo_recojo = data.get('codigo_recojo')
     
     if not to_number or not nro_orden:
-        logger.error("Faltan parámetros en la solicitud de Make.com")
         return jsonify({'error': 'Faltan parámetros'}), 400
     
     try:
         customer_name = "cliente"
         if db:
-            customer_doc_ref = db.collection('clientes').document(str(to_number))
-            customer_doc = customer_doc_ref.get()
+            customer_doc = db.collection('clientes').document(str(to_number)).get()
             if customer_doc.exists:
                 customer_name = customer_doc.to_dict().get('nombre_perfil_wa', 'cliente')
 
-        message_1 = (f"¡Hola {customer_name}! 👋🏽✨\n\n¡Excelentes noticias! Tu pedido de Daaqui Joyas ha sido enviado. 🚚\n\n"
+        message_1 = (f"¡Hola {customer_name}! 👋🏽✨\n\nTu pedido de Daaqui Joyas ha sido enviado. 🚚\n\n"
                      f"Datos para seguimiento Shalom:\n👉🏽 *Nro. de Orden:* {nro_orden}" +
-                     (f"\n👉🏽 *Código de Recojo:* {codigo_recojo}" if codigo_recojo else "") +
-                     "\n\nA continuación, los pasos a seguir:")
+                     (f"\n👉🏽 *Código de Recojo:* {codigo_recojo}" if codigo_recojo else ""))
         send_text_message(str(to_number), message_1)
         time.sleep(2)
-        message_2 = ("*Pasos para una entrega exitosa:* 👇\n\n"
-                     "*1. HAZ EL SEGUIMIENTO:* 📲\nDescarga la app *\"Mi Shalom\"*. Si eres nuevo, regístrate. Con los datos de arriba, podrás ver el estado de tu paquete.\n\n"
-                     "*2. PAGA EL SALDO CUANDO LLEGUE:* 💳\nCuando la app confirme que tu pedido llegó a la agencia, yapea o plinea el saldo restante. Haz este paso *antes de ir a la agencia*.\n\n"
-                     "*3. AVISA Y RECIBE TU CLAVE:* 🔑\nApenas nos envíes la captura de tu pago, lo validaremos y te daremos la *clave secreta de recojo*. ¡La necesitarás junto a tu DNI! 🎁")
+        message_2 = ("*Pasos para el recojo:*\n"
+                     "1. *SEGUIMIENTO:* Descarga la app \"Mi Shalom\" y usa los datos de arriba para ver el estado.\n"
+                     "2. *PAGA EL SALDO:* Cuando la app confirme que llegó a la agencia, yapea el saldo restante.\n"
+                     "3. *RECIBE TU CLAVE:* Envíanos la captura y te daremos la clave secreta de recojo.")
         send_text_message(str(to_number), message_2)
-        time.sleep(2)
-        message_3 = ("✨ *¡Ya casi es tuya! Tu último paso es el más importante.* ✨\n\n"
-                     "Para darte atención prioritaria, responde este chat con la **captura de tu pago**.\n\n"
-                     "¡Estaremos atentos para enviarte tu clave al instante! La necesitarás junto a tu DNI para recibir tu joya. 🎁")
-        send_text_message(str(to_number), message_3)
         return jsonify({'status': 'mensajes enviados'}), 200
     except Exception as e:
-        logger.error(f"Error crítico en send_tracking_code: {e}")
+        logger.error(f"Error en send_tracking_code: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
-# ==============================================================================
-# 10. ENDPOINT PARA NOTIFICACIONES INTERNAS (EJ: ALERTA DE STOCK)
-# ==============================================================================
 @app.route('/api/notify-admin', methods=['POST'])
 def notify_admin():
     auth_header = request.headers.get('Authorization')
     if not auth_header or auth_header != f'Bearer {MAKE_SECRET_TOKEN}':
-        logger.warning("Intento de acceso no autorizado a /api/notify-admin")
         return jsonify({'error': 'No autorizado'}), 401
     
     data = request.get_json()
     message_to_admin = data.get('message')
 
     if not message_to_admin:
-        logger.error("No se recibió 'message' en la solicitud de Make.com a notify-admin")
         return jsonify({'error': 'Falta el parámetro message'}), 400
     
     try:
         if ADMIN_WHATSAPP_NUMBER:
             send_text_message(ADMIN_WHATSAPP_NUMBER, message_to_admin)
-            logger.info("Notificación de administrador enviada exitosamente.")
             return jsonify({'status': 'notificacion enviada'}), 200
         else:
-            logger.error("ADMIN_WHATSAPP_NUMBER no está configurado. No se puede enviar la alerta.")
             return jsonify({'error': 'Admin no configurado'}), 500
     except Exception as e:
-        logger.error(f"Error crítico en notify_admin: {e}")
+        logger.error(f"Error en notify_admin: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
