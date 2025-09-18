@@ -397,10 +397,20 @@ def handle_purchase_decision(from_number, text, session, product_data):
         send_text_message(from_number, "Entendido. Si cambias de opinión, aquí estaré. ¡Que tengas un buen día! 😊")
 
 def handle_upsell_decision(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    if text not in ['oferta', 'continuar']:
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            reprompt_message = "Aclarada tu duda, para continuar con tu pedido, ¿cuál será tu elección?"
+            botones = [{'id': 'oferta', 'title': '🔥 Quiero la oferta'}, {'id': 'continuar', 'title': 'Continuar con uno'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'oferta':
         session.update({"product_name": "Oferta 2x Collares Mágicos + Cadenas", "product_price": 99.00, "is_upsell": True})
         send_text_message(from_number, "¡Genial! Has elegido la oferta. ✨")
-    else:
+    else: # Esto se activa con 'continuar' o cualquier otra cosa que no sea una FAQ
         session['is_upsell'] = False
         send_text_message(from_number, "¡Perfecto! Continuamos con tu collar individual. ✨")
     
