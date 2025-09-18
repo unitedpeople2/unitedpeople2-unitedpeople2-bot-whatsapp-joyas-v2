@@ -532,9 +532,9 @@ def handle_province_district(from_number, text, session, product_data):
     session.update({"tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     
-    # --- TEXTO PERSUASIVO RESTAURADO ---
+    # --- CORRECCIÓN DE FORMATO Y TEXTO ---
     mensaje = (f"¡Genial! Prepararemos tu envío para *{provincia}* vía Shalom.\n\n"
-               f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. Para **asegurar y priorizar** tu paquete en la próxima salida, solicitamos un adelanto de **S/ {adelanto:.2f}** como compromiso de recojo.\n\n"
+               f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. Para *asegurar y priorizar* tu paquete en la próxima salida, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
                "¿Procedemos?")
     
     botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
@@ -556,9 +556,12 @@ def handle_lima_district(from_number, text, session, product_data):
         elif status == 'SIN_COBERTURA':
             session.update({"tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"})
             adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-            mensaje = (f"¡Genial! Prepararemos tu envío para *{distrito}* vía *Shalom*. "
-                       f"Para asegurar tu paquete, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
+            
+            # --- CORRECCIÓN DE TEXTO PARA SER CONSISTENTE ---
+            mensaje = (f"¡Genial! Prepararemos tu envío para *{distrito}* vía *Shalom*.\n\n"
+                       f"Nuestros despachos se están agendando rápidamente ⚠️. Para *asegurar y priorizar* tu paquete en la próxima salida, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
                        "¿Procedemos?")
+
             botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
             send_interactive_message(from_number, mensaje, botones)
             session['state'] = 'awaiting_shalom_agreement'
