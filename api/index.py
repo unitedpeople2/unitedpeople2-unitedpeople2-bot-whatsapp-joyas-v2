@@ -536,12 +536,13 @@ def handle_purchase_decision(from_number, text, session, product_data):
         send_text_message(from_number, upsell_message_1)
         time.sleep(1.5)
         
-        # --- CORRECCIÓN DE TÍTULO DE BOTÓN ---
+        # --- PREGUNTA PERSUASIVA MEJORADA ---
+        mensaje_decision = "Para continuar con tu pedido, ¿cuál será tu elección?"
         botones = [
             {'id': 'oferta', 'title': '🔥 Quiero la oferta'},
             {'id': 'continuar', 'title': 'Continuar con uno'}
         ]
-        send_interactive_message(from_number, "¿Qué decides?", botones)
+        send_interactive_message(from_number, mensaje_decision, botones)
         
         session['state'] = 'awaiting_upsell_decision'
         save_session(from_number, session)
@@ -587,8 +588,12 @@ def handle_province_district(from_number, text, session, product_data):
     provincia, distrito = parse_province_district(text)
     session.update({"tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-    mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
-               "¿Estás de acuerdo?")
+    
+    # --- MENSAJE PERSUASIVO MEJORADO ---
+    mensaje = (f"¡Genial! Prepararemos tu envío para *{provincia}, {distrito}* vía *Shalom*. "
+               f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. "
+               f"Para asegurar y priorizar tu paquete en la próxima salida, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
+               "¿Procedemos?")
     
     botones = [
         {'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'},
@@ -612,8 +617,13 @@ def handle_lima_district(from_number, text, session, product_data):
         elif status == 'SIN_COBERTURA':
             session.update({"tipo_envio": "Lima Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)"})
             adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
-            mensaje = (f"Entendido. ✅ Para *{distrito}*, los envíos son por agencia *Shalom* y requieren un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo. 🤝\n\n"
-                       "¿Estás de acuerdo?")
+            
+            # --- MENSAJE PERSUASIVO MEJORADO ---
+            mensaje = (f"¡Genial! Prepararemos tu envío para *{distrito}* vía *Shalom*. "
+                       f"Nuestros despachos se están agendando rápidamente ⚠️. "
+                       f"Para asegurar y priorizar tu paquete en la próxima salida, solicitamos un adelanto de *S/ {adelanto:.2f}* como compromiso de recojo.\n\n"
+                       "¿Procedemos?")
+
             botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
             send_interactive_message(from_number, mensaje, botones)
             session['state'] = 'awaiting_shalom_agreement'
