@@ -244,7 +244,7 @@ def check_and_handle_faq(from_number, text):
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA INICIAL
 # ==============================================================================
 def start_sales_flow(from_number, user_name, product_id):
-    """Función centralizada para iniciar un flujo de venta para un producto."""
+    """Inicia un flujo de venta: guarda la sesión y envía el mensaje de bienvenida."""
     product_doc = db.collection('productos').document(product_id).get()
     if not product_doc.exists:
         send_text_message(from_number, "Lo siento, hubo un problema al cargar la información del producto.")
@@ -252,20 +252,37 @@ def start_sales_flow(from_number, user_name, product_id):
         
     product_data = product_doc.to_dict()
     
+    # Paso 1: Guardar la sesión y establecer el estado para esperar la respuesta
     session_data = {
-        "state": "awaiting_occasion_response", "product_id": product_id,
-        "product_name": product_data.get('nombre'), "product_price": float(product_data.get('precio_base', 0)),
-        "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False
+        "state": "awaiting_occasion_response", # Espera la respuesta a la pregunta "¿esta magia es para ti...?"
+        "product_id": product_id,
+        "product_name": product_data.get('nombre'),
+        "product_price": float(product_data.get('precio_base', 0)),
+        "user_name": user_name,
+        "whatsapp_id": from_number,
+        "is_upsell": False
     }
     save_session(from_number, session_data)
     
+    # Paso 2: Enviar la imagen del producto
     url_img = product_data.get('imagenes', {}).get('principal')
     if url_img:
         send_image_message(from_number, url_img)
         time.sleep(1)
     
-    # Llama directamente al siguiente paso de la conversación para mostrar los detalles
-    handle_occasion_response(from_number, "", session_data, product_data)
+    # Paso 3: Enviar el nuevo mensaje de bienvenida para iniciar la conversación
+    send_welcome_message(from_number, user_name)
+
+def send_welcome_message(from_number, user_name):
+    """Envía el mensaje de bienvenida persuasivo y establece el estado inicial."""
+    welcome_text = (
+        f"¡Hola {user_name}! Estás a punto de descubrir el **secreto** del Collar Mágico Girasol Radiant. 🤫✨\n\n"
+        "No es solo una joya, es una pieza que **se conecta contigo**, cambiando de color para reflejar tu propia energía. 💖\n\n"
+        "Debido a su diseño único, tenemos **pocas unidades disponibles** en esta campaña. ⚠️\n\n"
+        "Puedes llevarte la tuya por **S/ 69.00** (incluye **envío gratis** a todo el Perú 🇵🇪🚚).\n\n"
+        "Antes de contarte más, dime, ¿esta **magia** es para ti o para sorprender a alguien especial? 🎁"
+    )
+    send_text_message(from_number, welcome_text)
 
 def handle_initial_message(from_number, user_name, text):
     # 1. Lógica de Coincidencia Exacta para Anuncios (MÁXIMA PRIORIDAD)
