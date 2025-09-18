@@ -505,9 +505,13 @@ def handle_province_district(from_number, text, session, product_data):
     session.update({"tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     
-    mensaje = (f"¡Genial! Prepararemos tu envío para *{provincia}* vía Shalom. "
-               f"Para asegurar tu paquete en la próxima salida, solicitamos un adelanto de S/ {adelanto:.2f} como compromiso de recojo.\n\n"
+    # --- INICIO DE LA CORRECCIÓN ---
+    # Restaurar el mensaje persuasivo con urgencia
+    mensaje = (f"¡Genial! Prepararemos tu envío para *{provincia}* vía Shalom.\n\n"
+               f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. Para **asegurar y priorizar** tu paquete en la próxima salida, solicitamos un adelanto de **S/ {adelanto:.2f}** como compromiso de recojo.\n\n"
                "¿Procedemos?")
+    # --- FIN DE LA CORRECCIÓN ---
+
     botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
     send_interactive_message(from_number, mensaje, botones)
     session['state'] = 'awaiting_shalom_agreement'
@@ -648,14 +652,29 @@ def handle_final_confirmation(from_number, text, session, product_data):
             send_interactive_message(from_number, reprompt_message, botones)
             return
 
-    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
+    # --- LÓGICA ORIGINAL MODIFICADA ---
     if text == 'si_correcto':
         if session.get('tipo_envio') == 'Lima Contra Entrega':
             adelanto = float(BUSINESS_RULES.get('adelanto_lima_delivery', 10))
             session.update({'adelanto': adelanto})
-            mensaje = (f"¡Perfecto! Para asegurar tu cupo en la ruta de mañana 🚚, solicitamos un adelanto de *S/ {adelanto:.2f}*. ¿Procedemos?")
-            botones = [{'id': 'si_proceder', 'title': 'Sí, reservar ahora'}, {'id': 'no_proceder', 'title': 'No, gracias'}]
-            send_interactive_message(from_number, mensaje, botones)
+            
+            # 1. Restaurar el mensaje persuasivo largo
+            mensaje_largo = (
+                "¡Perfecto! Tu pedido contra entrega está listo para ser agendado. ✨\n\n"
+                "Nuestras rutas de reparto para mañana 🚚 ya se están llenando y tenemos *cupos limitados* ⚠️. Para asegurar tu espacio y priorizar tu entrega, solo solicitamos un adelanto de *S/ 10.00*.\n\n"
+                "Este pequeño monto confirma tu compromiso y nos permite seguir ofreciendo *envío gratis* a clientes serios como tú. Por supuesto, se descuenta del total."
+            )
+            send_text_message(from_number, mensaje_largo)
+            time.sleep(2) # Pausa para leer el texto
+            
+            # 2. Usar la nueva pregunta y botones que elegiste
+            pregunta_final = "¡Casi es tuyo! ✨ Tu Collar Mágico está esperando. ¿Aseguramos tu joya?"
+            botones = [
+                {'id': 'si_proceder', 'title': '💖 ¡Sí, lo quiero!'},
+                {'id': 'no_proceder', 'title': 'Ahora no, gracias'}
+            ]
+            send_interactive_message(from_number, pregunta_final, botones)
+            
             session['state'] = 'awaiting_lima_payment_agreement'
             save_session(from_number, session)
         else: # Shalom
