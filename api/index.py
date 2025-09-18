@@ -408,18 +408,21 @@ def find_matching_intent(text):
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
 
-# --- FUNCIÓN `handle_initial_message` SIMPLIFICADA ---
+# --- FUNCIÓN `handle_initial_message` MODIFICADA ---
 def handle_initial_message(from_number, user_name, text):
-    # Intentamos encontrar una intención predefinida
+    # PRIMERO: Si el mensaje es una FAQ, se maneja y terminamos
+    # Se hace aquí para que la lógica de los anuncios tenga prioridad
+    if check_and_handle_faq(from_number, text, None):
+        return
+
+    # SEGUNDO: Si no es una FAQ, buscamos una intención de anuncio
     intent_id = find_matching_intent(text)
 
     # Si se encuentra una intención, personalizamos la respuesta y el flujo
     if intent_id:
-        # Obtenemos el producto y la información de la intención desde la base de datos
         intent_info = INITIAL_INTENTS.get('intents', {}).get(intent_id, {})
         product_id = intent_info.get('product_id')
         
-        # Obtenemos los datos completos del producto
         product_doc = db.collection('productos').document(product_id).get()
         product_data = product_doc.to_dict() if product_doc.exists else None
         
@@ -427,12 +430,10 @@ def handle_initial_message(from_number, user_name, text):
             send_text_message(from_number, "Lo siento, hubo un problema con el producto.")
             return
 
-        # Enviamos la imagen y luego el mensaje del producto
         url_img = product_data.get('imagenes', {}).get('principal')
         if url_img: send_image_message(from_number, url_img)
         time.sleep(1)
 
-        # Preparamos los datos de la sesión para el siguiente paso
         session_data = {
             "state": intent_info.get('state_after_intro'),
             "product_id": product_id,
@@ -443,19 +444,16 @@ def handle_initial_message(from_number, user_name, text):
             "is_upsell": False
         }
         
-        # Obtenemos el mensaje directamente de la base de datos
         mensaje_personalizado = INITIAL_INTENTS.get('responses', {}).get('girasol_general_response')
 
-        # Si el mensaje existe, lo enviamos.
         if mensaje_personalizado:
-            # Reemplazamos {user_name} con el nombre real del cliente
             mensaje_final = mensaje_personalizado.replace("{user_name}", user_name)
             send_text_message(from_number, mensaje_final)
 
         save_session(from_number, session_data)
         return
     
-    # Si no se encontró una intención, se ejecuta el flujo normal de bienvenida
+    # TERCERO: Si no es un anuncio, se ejecuta el flujo normal de bienvenida
     if MENU_PRINCIPAL:
         welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
         botones = [{'id': '1', 'title': '🛍️ Ver Colección'}, {'id': '2', 'title': '❓ Preguntas'}]
