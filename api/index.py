@@ -408,7 +408,7 @@ def find_matching_intent(text):
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
 
-# --- FUNCIÓN `handle_initial_message` REEMPLAZADA ---
+# --- FUNCIÓN `handle_initial_message` SIMPLIFICADA ---
 def handle_initial_message(from_number, user_name, text):
     # Intentamos encontrar una intención predefinida
     intent_id = find_matching_intent(text)
@@ -443,19 +443,15 @@ def handle_initial_message(from_number, user_name, text):
             "is_upsell": False
         }
         
-        # Lógica para personalizar el mensaje de acuerdo a la intención
-        mensaje_personalizado = f"¡Hola {user_name}! 🌞 El *{product_data.get('nombre')}* tiene un costo de *S/ {product_data.get('precio_base'):.2f}*."
-        
-        if intent_id == 'girasol_lima':
-            mensaje_personalizado += " El envío en Lima es gratis. ¿En qué distrito te encuentras? 📍"
-            session_data['provincia'] = 'Lima'
-        elif intent_id == 'girasol_provincia':
-            mensaje_personalizado += " El envío a provincia es por Shalom con un adelanto. ¿Cuál es tu provincia y distrito? 📝"
-            session_data['provincia'] = 'Provincia'
-        elif intent_id == 'girasol_precio':
-            mensaje_personalizado += " ¿Para dónde sería el envío, Lima o provincia? 🏙️"
+        # Obtenemos el mensaje directamente de la base de datos
+        mensaje_personalizado = INITIAL_INTENTS.get('responses', {}).get('girasol_general_response')
 
-        send_text_message(from_number, mensaje_personalizado)
+        # Si el mensaje existe, lo enviamos.
+        if mensaje_personalizado:
+            # Reemplazamos {user_name} con el nombre real del cliente
+            mensaje_final = mensaje_personalizado.replace("{user_name}", user_name)
+            send_text_message(from_number, mensaje_final)
+
         save_session(from_number, session_data)
         return
     
