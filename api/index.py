@@ -986,10 +986,6 @@ def process_message(message, contacts):
                 send_text_message(from_number, "Hecho. He cancelado el proceso. Si necesitas algo más, escríbeme. 😊")
             return
 
-        if check_and_handle_faq(from_number, text_body, session):
-            # Si se maneja una FAQ, detenemos el procesamiento aquí.
-            return
-
         # --- FIN DE LA NUEVA LÓGICA ---
 
         # Si no hay sesión, iniciar el flujo de mensaje inicial
