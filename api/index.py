@@ -371,6 +371,17 @@ def get_last_question(state):
 # 5.1. FUNCIÓN CENTRALIZADA DE FAQ (NUEVA SECCIÓN)
 # ==============================================================================
 def check_and_handle_faq(from_number, text, session):
+    # Condición para evitar que el bot responda FAQs si está esperando una respuesta específica
+    # Excluimos los estados iniciales para permitir las FAQs al inicio de la conversación
+    if session and session.get('state') not in [
+        None, 
+        'awaiting_menu_choice', 
+        'awaiting_product_choice',
+        'awaiting_faq_choice'
+    ]:
+        # Si estamos en un estado de compra avanzado, no manejar FAQs
+        return False
+        
     text_lower = text.lower()
     for key, keywords in FAQ_KEYWORD_MAP.items():
         if any(keyword in text_lower for keyword in keywords):
