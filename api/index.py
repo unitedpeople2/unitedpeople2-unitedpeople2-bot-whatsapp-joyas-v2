@@ -998,3 +998,25 @@ def notify_admin():
     except Exception as e:
         logger.error(f"Error en notify_admin: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
+
+# --- INICIO DEL NUEVO CÓDIGO FLEXIBLE ---
+@app.route('/api/send-custom-message', methods=['POST'])
+def send_custom_message():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or auth_header != f'Bearer {MAKE_SECRET_TOKEN}':
+        return jsonify({'error': 'No autorizado'}), 401
+
+    data = request.get_json()
+    to_number = data.get('to_number')
+    message_body = data.get('message')
+
+    if not to_number or not message_body:
+        return jsonify({'error': 'Faltan parámetros: to_number o message'}), 400
+
+    try:
+        send_text_message(str(to_number), message_body)
+        return jsonify({'status': 'mensaje personalizado enviado'}), 200
+    except Exception as e:
+        logger.error(f"Error en send_custom_message: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+# --- FIN DEL NUEVO CÓDIGO ---
