@@ -554,6 +554,19 @@ def handle_customer_details(from_number, text, session, product_data):
     save_session(from_number, session)
 
 def handle_shalom_agreement(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    if text not in ['si_acuerdo', 'no_acuerdo']:
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            # Vuelve a hacer la pregunta original
+            adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
+            reprompt_message = (f"Aclarada tu duda. 😊 Para continuar, te recuerdo que para asegurar tu paquete, solicitamos un adelanto de S/ {adelanto:.2f} como compromiso de recojo.\n\n"
+                                "¿Procedemos?")
+            botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'si_acuerdo':
         session['state'] = 'awaiting_shalom_experience'
         save_session(from_number, session)
@@ -565,30 +578,77 @@ def handle_shalom_agreement(from_number, text, session, product_data):
         send_text_message(from_number, "Comprendo. Si cambias de opinión, aquí estaré. ¡Gracias! 😊")
 
 def handle_shalom_experience(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    if text not in ['si_conozco', 'no_conozco']:
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            # Vuelve a hacer la pregunta original
+            reprompt_message = "Aclarada tu duda. 😊 Para continuar, cuéntame, ¿alguna vez has recogido un pedido en una agencia Shalom?"
+            botones = [{'id': 'si_conozco', 'title': '✅ Sí, ya conozco'}, {'id': 'no_conozco', 'title': 'No, explícame más'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'si_conozco':
         session['state'] = 'awaiting_shalom_details'
         save_session(from_number, session)
-        mensaje = ("¡Excelente! Para terminar, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de la agencia Shalom* donde recogerás. ✍🏽\n\n"
+        mensaje = ("¡Excelente! Entonces ya conoces el proceso. ✅\n\n"
+                   "Para terminar, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección exacta de la agencia Shalom* donde recogerás. ✍🏽\n\n"
                    "📝 *Ej: Juan Quispe, 45678901, Av. Pardo 123, Miraflores.*")
         send_text_message(from_number, mensaje)
     else: # 'no_conozco'
         session['state'] = 'awaiting_shalom_agency_knowledge'
         save_session(from_number, session)
-        mensaje = ("¡No te preocupes! Es 100% seguro. Te damos un código de seguimiento, y cuando tu pedido llega a la agencia, yapeas el saldo restante y te damos la clave para el recojo. ¿Conoces la dirección de alguna agencia Shalom cerca a ti?")
-        botones = [{'id': 'shalom_knows_addr_yes', 'title': 'Sí, la conozco'}, {'id': 'shalom_knows_addr_no', 'title': 'No, necesito buscar'}]
+        mensaje = ("¡No te preocupes! Te explico: Shalom es una empresa de envíos. Te damos un código de seguimiento, y cuando tu pedido llega a la agencia, nos yapeas el saldo restante. Apenas confirmemos, te damos la clave secreta para el recojo. ¡Es 100% seguro! 🔒\n\n"
+                   "¿Conoces la dirección de alguna agencia Shalom cerca a ti?")
+        
+        botones = [
+            {'id': 'shalom_knows_addr_yes', 'title': 'Sí, la conozco'},
+            {'id': 'shalom_knows_addr_no', 'title': 'No, necesito buscar'}
+        ]
         send_interactive_message(from_number, mensaje, botones)
 
 def handle_shalom_agency_knowledge(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    if text not in ['shalom_knows_addr_yes', 'shalom_knows_addr_no']:
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            # Vuelve a hacer la pregunta original
+            reprompt_message = "Aclarada tu duda. 😊 Continuando, ¿conoces la dirección de alguna agencia Shalom cerca a ti?"
+            botones = [{'id': 'shalom_knows_addr_yes', 'title': 'Sí, la conozco'}, {'id': 'shalom_knows_addr_no', 'title': 'No, necesito buscar'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'shalom_knows_addr_yes':
         session['state'] = 'awaiting_shalom_details'
         save_session(from_number, session)
-        mensaje = ("¡Perfecto! Bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽")
+        mensaje = ("¡Perfecto! Por favor, bríndame en un solo mensaje tu *Nombre Completo, DNI* y la *dirección de esa agencia Shalom*. ✍🏽")
         send_text_message(from_number, mensaje)
     else: # 'shalom_knows_addr_no'
         delete_session(from_number)
-        send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. Cuando la tengas, puedes iniciar la conversación de nuevo. ¡Gracias!")
+        send_text_message(from_number, "Entiendo. 😔 Te recomiendo buscar en Google 'Shalom agencias' para encontrar la más cercana. Cuando la tengas, puedes iniciar la conversación de nuevo. ¡Gracias por tu interés!")	
 
 def handle_final_confirmation(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    if text not in ['si_correcto', 'corregir']:
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            # Vuelve a hacer la pregunta original con el resumen del pedido
+            reprompt_message = ("Espero haber aclarado tu duda. 😊 Por favor, revisa nuevamente que todo esté correcto y confirma tu pedido:\n\n"
+                                f"*Resumen del Pedido*\n"
+                                f"💎 {session.get('product_name', '')}\n"
+                                f"💵 Total: S/ {session.get('product_price', 0):.2f}\n"
+                                f"🚚 Envío: *{session.get('distrito', session.get('provincia', ''))}* - ¡Gratis!\n"
+                                f"💳 Pago: {session.get('metodo_pago', '')}\n\n"
+                                f"*Datos de Entrega*\n"
+                                f"{session.get('detalles_cliente', '')}\n\n"
+                                "¿Confirmas que todo es correcto?")
+            botones = [{'id': 'si_correcto', 'title': '✅ Sí, todo correcto'}, {'id': 'corregir', 'title': '📝 Corregir datos'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'si_correcto':
         if session.get('tipo_envio') == 'Lima Contra Entrega':
             adelanto = float(BUSINESS_RULES.get('adelanto_lima_delivery', 10))
