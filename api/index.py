@@ -240,6 +240,33 @@ def check_and_handle_faq(from_number, text):
                 return True
     return False
 
+def guardar_pedido_en_sheet(sale_data):
+    if not worksheet_pedidos:
+        logger.error("[Sheets] La conexión no está inicializada. No se puede guardar el pedido.")
+        return False
+    try:
+        # Define el orden correcto de las columnas para la hoja de cálculo
+        nueva_fila = [
+            datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            sale_data.get('id_venta', 'N/A'),
+            sale_data.get('producto_nombre', 'N/A'),
+            sale_data.get('precio_venta', 0),
+            sale_data.get('tipo_envio', 'N/A'),
+            sale_data.get('metodo_pago', 'N/A'),
+            sale_data.get('adelanto_recibido', 0),
+            sale_data.get('saldo_restante', 0),
+            sale_data.get('provincia', 'N/A'),
+            sale_data.get('distrito', 'N/A'),
+            sale_data.get('detalles_cliente', 'N/A'),
+            sale_data.get('cliente_id', 'N/A')
+        ]
+        worksheet_pedidos.append_row(nueva_fila)
+        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado exitosamente.")
+        return True
+    except Exception as e:
+        logger.error(f"[Sheets] ERROR INESPERADO al guardar: {e}")
+        return False
+
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA INICIAL
 # ==============================================================================
