@@ -920,26 +920,8 @@ def process_message(message, contacts):
     try:
         from_number = message.get('from')
         user_name = next((c.get('profile', {}).get('name', 'Usuario') for c in contacts if c.get('wa_id') == from_number), 'Usuario')
-        
         session = get_session(from_number)
         
-        # --- CÓDIGO DE DIAGNÓSTICO PARA LA SESIÓN ---
-        if session:
-            logger.info(f"SESIÓN ENCONTRADA. Estado actual: {session.get('state')}")
-        else:
-            logger.warning("ALERTA: NO SE ENCONTRÓ SESIÓN PARA ESTE USUARIO.")
-        # ----------------------------------------------
-
-        if session and 'last_updated' in session:
-            last_update_time = session['last_updated']
-            if last_update_time.tzinfo is None:
-                last_update_time = last_update_time.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - last_update_time > timedelta(hours=2):
-                logger.info(f"Sesión expirada por inactividad para {from_number}. Eliminando.")
-                delete_session(from_number)
-                send_text_message(from_number, "Hola de nuevo. 😊 Parece que ha pasado un tiempo. Si necesitas algo, no dudes en preguntar.")
-                session = None
-
         message_type = message.get('type')
         text_body = ""
         if message_type == 'text':
@@ -957,66 +939,39 @@ def process_message(message, contacts):
 
         logger.info(f"Procesando de {user_name} ({from_number}): '{text_body}'")
 
-        if from_number == ADMIN_WHATSAPP_NUMBER and text_body.lower().startswith('clave '):
-            logger.info(f"Comando de admin detectado de {from_number}")
-            parts = text_body.split()
-            if len(parts) == 3:
-                target_number, secret_key = parts[1], parts[2]
-                if target_number.isdigit() and len(target_number) > 8:
-                    msg = (f"¡Gracias por confirmar tu pago! ✨\n\n"
-                           f"Aquí tienes tu clave secreta para recoger tu pedido en la agencia:\n\n"
-                           f"🔑 *CLAVE:* {secret_key}\n\n"
-                           "¡Que disfrutes tu joya!")
-                    send_text_message(target_number, msg)
-                    send_text_message(from_number, f"✅ Clave '{secret_key}' enviada a {target_number}.")
-                else:
-                    send_text_message(from_number, f"❌ Error: El número '{target_number}' no parece válido.")
-            else:
-                send_text_message(from_number, "❌ Error: Usa: clave <numero> <clave>")
-            return
-
+        # --- NUEVA LÓGICA: REVISAR CANCELACIONES Y FAQS PRIMERO ---
         if any(palabra in text_body.lower() for palabra in PALABRAS_CANCELACION):
-            session = get_session(from_number)
             if session:
                 delete_session(from_number)
                 send_text_message(from_number, "Hecho. He cancelado el proceso. Si necesitas algo más, escríbeme. 😊")
+            return
+
+        if check_and_handle_faq(from_number, text_body, session):
+            # Si se maneja una FAQ, detenemos el procesamiento aquí.
+            return
+
+        # --- FIN DE LA NUEVA LÓGICA ---
+
+        # Si no hay sesión, iniciar el flujo de mensaje inicial
+        if not session:
+            handle_initial_message(from_number, user_name, text_body)
+            return
+
+        # Manejar la expiración de la sesión
+        if 'last_updated' in session:
+            last_update_time = session['last_updated']
+            if last_update_time.tzinfo is None:
+                last_update_time = last_update_time.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - last_update_time > timedelta(hours=2):
+                logger.info(f"Sesión expirada por inactividad para {from_number}. Eliminando.")
+                delete_session(from_number)
+                send_text_message(from_number, "Hola de nuevo. 😊 Parece que ha pasado un tiempo. Si necesitas algo, no dudes en preguntar.")
+                handle_initial_message(from_number, user_name, text_body)
                 return
-            venta_activa = None
-            if db:
-                # AÑADIMOS UN FILTRO PARA QUE SOLO BUSQUE ENVÍOS TIPO SHALOM
-                ventas_pendientes = db.collection('ventas') \
-                    .where('cliente_id', '==', from_number) \
-                    .where('estado_pedido', '==', 'Adelanto Pagado') \
-                    .where('tipo_envio', 'in', ['Provincia Shalom', 'Lima Shalom']) \
-                    .limit(1).stream()
-                
-                venta_activa = next(ventas_pendientes, None)
-                if venta_activa:
-                    if message_type == 'image':
-                         logger.info(f"Posible pago final (imagen) detectado de {from_number} para envío Shalom.")
-                         clave_encontrada = find_key_in_sheet(from_number)
-                         notificacion_info = (f"🔔 *¡Atención! Posible Pago Final Recibido* 🔔\n\n"
-                                         f"El cliente *{user_name}* ({from_number}) con un pedido pendiente acaba de enviar una imagen.\n")
-                         if clave_encontrada:
-                             notificacion_info += f"*Clave Encontrada en Sheet:* `{clave_encontrada}`"
-                             comando_listo = f"clave {from_number} {clave_encontrada}"
-                             send_text_message(ADMIN_WHATSAPP_NUMBER, notificacion_info)
-                             time.sleep(1)
-                             send_text_message(ADMIN_WHATSAPP_NUMBER, comando_listo)
-                         else:
-                             notificacion_info += ("*Clave:* No encontrada en Sheet.\n\n"
-                                              f"Busca la clave y envíala con:\n`clave {from_number} LA_CLAVE_SECRETA`")
-                             send_text_message(ADMIN_WHATSAPP_NUMBER, notificacion_info)
-                         return
-                    else:
-                        msg_yape = (f"¡Hola {user_name}! 😊 Veo que tienes un pago pendiente. Puedes realizarlo a nuestro Yape/Plin: *{YAPE_NUMERO}* a nombre de *{TITULAR_YAPE}*.\n\n"
-                                    "No olvides enviarme la captura para darte tu clave. ¡Gracias! 🔑")
-                        send_text_message(from_number, msg_yape)
-                        return
-            handle_initial_message(from_number, user_name, text_body if message_type == 'text' else "collar girasol")
-        else:
-            handle_sales_flow(from_number, text_body, session)
-            
+
+        # Si existe una sesión, manejar el flujo de ventas
+        handle_sales_flow(from_number, text_body, session)
+
     except Exception as e:
         logger.error(f"Error fatal en process_message: {e}")
 
