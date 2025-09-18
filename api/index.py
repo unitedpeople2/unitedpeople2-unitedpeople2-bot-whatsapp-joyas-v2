@@ -691,6 +691,20 @@ def handle_final_confirmation(from_number, text, session, product_data):
         send_text_message(from_number, "¡Claro, lo corregimos! 😊 Envíame nuevamente la información completa en un solo mensaje.")
 
 def handle_lima_payment_agreement(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    if text not in ['si_proceder', 'no_proceder']:
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            # Vuelve a hacer la pregunta original
+            reprompt_message = "Aclarada tu duda. 😊 Para continuar, ¿aseguramos tu joya?"
+            botones = [
+                {'id': 'si_proceder', 'title': '💖 ¡Sí, lo quiero!'},
+                {'id': 'no_proceder', 'title': 'Ahora no, gracias'}
+            ]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'si_proceder':
         session['state'] = 'awaiting_lima_payment'
         save_session(from_number, session)
