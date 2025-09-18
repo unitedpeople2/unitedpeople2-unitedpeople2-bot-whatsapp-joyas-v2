@@ -38,6 +38,7 @@ FAQ_KEYWORD_MAP = {}
 MENU_PRINCIPAL = {}
 CATALOGO_PRODUCTOS = {}
 MENU_FAQ = {}
+INITIAL_INTENTS = {}
 
 try:
     # --- CONEXIÓN CON FIREBASE ---
@@ -49,7 +50,7 @@ try:
             firebase_admin.initialize_app(cred)
         db = firestore.client()
         logger.info("✅ Conexión con Firebase establecida correctamente.")
-        
+
         # Carga de toda la configuración desde Firestore...
         rules_doc = db.collection('configuracion').document('reglas_envio').get()
         if rules_doc.exists: BUSINESS_RULES = rules_doc.to_dict(); logger.info("✅ Reglas del negocio cargadas.")
@@ -63,8 +64,7 @@ try:
             PALABRAS_CANCELACION = config_data.get('palabras_cancelacion', ['cancelar'])
             FAQ_KEYWORD_MAP = config_data.get('faq_keyword_map', {})
             logger.info("✅ Configuración general cargada.")
-
-        # --- CÓDIGO DEL MENÚ EN SU LUGAR CORRECTO ---
+        
         menu_doc = db.collection('configuracion').document('menu_principal').get()
         if menu_doc.exists:
             MENU_PRINCIPAL = menu_doc.to_dict()
@@ -72,9 +72,7 @@ try:
         else:
             MENU_PRINCIPAL = {}
             logger.warning("⚠️ Documento 'menu_principal' no encontrado.")
-        # ------------------------------------
-
-	# --- AÑADIR ESTO PARA CARGAR EL CATÁLOGO ---
+            
         catalogo_doc = db.collection('configuracion').document('catalogo_productos').get()
         if catalogo_doc.exists:
             CATALOGO_PRODUCTOS = catalogo_doc.to_dict()
@@ -83,7 +81,6 @@ try:
             CATALOGO_PRODUCTOS = {}
             logger.warning("⚠️ Documento 'catalogo_productos' no encontrado.")
 
-	# --- AÑADIR ESTO PARA CARGAR EL MENÚ DE FAQS ---
         menu_faq_doc = db.collection('configuracion').document('menu_faq').get()
         if menu_faq_doc.exists:
             MENU_FAQ = menu_faq_doc.to_dict()
@@ -91,6 +88,13 @@ try:
         else:
             MENU_FAQ = {}
             logger.warning("⚠️ Documento 'menu_faq' no encontrado.")
+
+        intents_doc = db.collection('configuracion').document('initial_intents').get()
+        if intents_doc.exists:
+            INITIAL_INTENTS = intents_doc.to_dict()
+            logger.info("✅ Intenciones iniciales cargadas.")
+        else:
+            logger.warning("⚠️ Documento 'initial_intents' no encontrado.")
 
         # --- AÑADIDO PARA GOOGLE SHEETS ---
         creds_json_str = os.environ.get('GOOGLE_CREDENTIALS_JSON')
@@ -103,7 +107,6 @@ try:
             logger.info("✅ Conexión con Google Sheets establecida correctamente.")
         else:
             logger.warning("⚠️ Faltan variables de entorno para Google Sheets. Las funciones relacionadas no operarán.")
-
     else:
         logger.error("❌ La variable de entorno FIREBASE_SERVICE_ACCOUNT_JSON no está configurada.")
 
@@ -122,8 +125,6 @@ MAKE_SECRET_TOKEN = os.environ.get('MAKE_SECRET_TOKEN')
 RUC_EMPRESA = BUSINESS_DATA.get('ruc', 'RUC_NO_CONFIGURADO')
 TITULAR_YAPE = BUSINESS_DATA.get('titular_yape', 'TITULAR_NO_CONFIGURADO')
 YAPE_NUMERO = BUSINESS_DATA.get('yape_numero', 'YAPE_NO_CONFIGURADO')
-
-KEYWORDS_GIRASOL = ["girasol", "radiant", "precio", "cambia de color"]
 
 # ==============================================================================
 # 3. FUNCIONES DE COMUNICACIÓN CON WHATSAPP
@@ -215,14 +216,7 @@ def find_product_by_keywords(text):
         product_doc = db.collection('productos').document(text).get()
         if product_doc.exists and product_doc.to_dict().get('activo'):
             return text, product_doc.to_dict()
-
-        # Si no es un ID, busca por palabras clave como lo hacía antes (para los anuncios).
-        if any(keyword in text.lower() for keyword in KEYWORDS_GIRASOL):
-            product_id = "collar-girasol-radiant-01"
-            product_doc = db.collection('productos').document(product_id).get()
-            if product_doc.exists and product_doc.to_dict().get('activo'):
-                return product_id, product_doc.to_dict()
-                
+     
     except Exception as e:
         logger.error(f"Error buscando producto por palabras clave o ID: {e}")
     return None, None
@@ -399,36 +393,77 @@ def check_and_handle_faq(from_number, text, session):
                 return True
     return False
 
+# ------------------------------------------------------------------------------
+# 5.2. FUNCIÓN PARA IDENTIFICAR INTENCIONES DE ANUNCIO
+# ------------------------------------------------------------------------------
+def find_matching_intent(text):
+    text_lower = text.lower()
+    for intent_id, intent_data in INITIAL_INTENTS.get('intents', {}).items():
+        if any(keyword in text_lower for keyword in intent_data.get('keywords', [])):
+            return intent_id
+    return None
+
+
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
 
+# --- FUNCIÓN `handle_initial_message` REEMPLAZADA ---
 def handle_initial_message(from_number, user_name, text):
-    product_id, product_data = find_product_by_keywords(text)
-    if product_data:
-        nombre_producto, desc_corta, precio, url_img = product_data.get('nombre', ''), product_data.get('descripcion_corta', ''), product_data.get('precio_base', 0), product_data.get('imagenes', {}).get('principal')
-        if url_img: send_image_message(from_number, url_img); time.sleep(1)
-        msg = (f"¡Hola {user_name}! 🌞 El *{nombre_producto}* {desc_corta}\n\n"
-               f"Por campaña, llévatelo a *S/ {precio:.2f}* (¡incluye envío gratis a todo el Perú! 🚚).\n\n"
-               "Cuéntame, ¿es un tesoro para ti o un regalo para alguien especial?")
-        send_text_message(from_number, msg)
-        save_session(from_number, {"state": "awaiting_occasion_response", "product_id": product_id, "product_name": nombre_producto, "product_price": float(precio), "user_name": user_name, "whatsapp_id": from_number, "is_upsell": False})
-        return
-   
-    if check_and_handle_faq(from_number, text, session=None):
-        return
+    # Intentamos encontrar una intención predefinida
+    intent_id = find_matching_intent(text)
 
+    # Si se encuentra una intención, personalizamos la respuesta y el flujo
+    if intent_id:
+        # Obtenemos el producto y la información de la intención desde la base de datos
+        intent_info = INITIAL_INTENTS.get('intents', {}).get(intent_id, {})
+        product_id = intent_info.get('product_id')
+        
+        # Obtenemos los datos completos del producto
+        product_doc = db.collection('productos').document(product_id).get()
+        product_data = product_doc.to_dict() if product_doc.exists else None
+        
+        if not product_data:
+            send_text_message(from_number, "Lo siento, hubo un problema con el producto.")
+            return
+
+        # Enviamos la imagen y luego el mensaje del producto
+        url_img = product_data.get('imagenes', {}).get('principal')
+        if url_img: send_image_message(from_number, url_img)
+        time.sleep(1)
+
+        # Preparamos los datos de la sesión para el siguiente paso
+        session_data = {
+            "state": intent_info.get('state_after_intro'),
+            "product_id": product_id,
+            "product_name": product_data.get('nombre'),
+            "product_price": float(product_data.get('precio_base', 0)),
+            "user_name": user_name,
+            "whatsapp_id": from_number,
+            "is_upsell": False
+        }
+        
+        # Lógica para personalizar el mensaje de acuerdo a la intención
+        mensaje_personalizado = f"¡Hola {user_name}! 🌞 El *{product_data.get('nombre')}* tiene un costo de *S/ {product_data.get('precio_base'):.2f}*."
+        
+        if intent_id == 'girasol_lima':
+            mensaje_personalizado += " El envío en Lima es gratis. ¿En qué distrito te encuentras? 📍"
+            session_data['provincia'] = 'Lima'
+        elif intent_id == 'girasol_provincia':
+            mensaje_personalizado += " El envío a provincia es por Shalom con un adelanto. ¿Cuál es tu provincia y distrito? 📝"
+            session_data['provincia'] = 'Provincia'
+        elif intent_id == 'girasol_precio':
+            mensaje_personalizado += " ¿Para dónde sería el envío, Lima o provincia? 🏙️"
+
+        send_text_message(from_number, mensaje_personalizado)
+        save_session(from_number, session_data)
+        return
+    
+    # Si no se encontró una intención, se ejecuta el flujo normal de bienvenida
     if MENU_PRINCIPAL:
         welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
-        
-        # --- LÓGICA DE BOTONES CON EMOJIS ---
-        botones = [
-            {'id': '1', 'title': '🛍️ Ver Colección'},
-            {'id': '2', 'title': '❓ Preguntas'}
-        ]
+        botones = [{'id': '1', 'title': '🛍️ Ver Colección'}, {'id': '2', 'title': '❓ Preguntas'}]
         send_interactive_message(from_number, welcome_message, botones)
-        # ------------------------------------
-        
         save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
     else:
         send_text_message(from_number, f"¡Hola {user_name}! 👋🏽✨ Bienvenida a *Daaqui Joyas*.")
