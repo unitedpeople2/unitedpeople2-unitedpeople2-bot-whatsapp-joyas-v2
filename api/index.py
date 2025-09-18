@@ -803,10 +803,15 @@ def handle_delivery_confirmation_lima(from_number, text, session, product_data):
             send_interactive_message(from_number, reprompt_message, botones)
             return
 
-    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
-    # Si el texto es una confirmación O si no fue una FAQ, procedemos
+    # --- LÓGICA ORIGINAL CON TEXTO MEJORADO ---
     if 'confirmo' in text.lower() or text == 'confirmo_entrega_lima':
-        mensaje_final = ("¡Listo! ✅ Tu pedido ha sido *confirmado en la ruta* 🚚. ¡Muchas gracias por tu compra! 🎉😊")
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Restaurar el mensaje final mejorado
+        mensaje_final = (
+            "¡Listo! ✅ Tu pedido ha sido *confirmado en la ruta* 🚚.\n\n"
+            "De parte de todo el equipo de *Daaqui Joyas*, ¡muchas gracias por tu compra! 😊"
+        )
+        # --- FIN DE LA CORRECCIÓN ---
         send_text_message(from_number, mensaje_final)
         delete_session(from_number)
     else:
