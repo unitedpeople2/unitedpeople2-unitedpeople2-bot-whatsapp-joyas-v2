@@ -408,14 +408,9 @@ def find_matching_intent(text):
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
 
-# --- FUNCIÓN `handle_initial_message` MODIFICADA ---
+# --- FUNCIÓN `handle_initial_message` REEMPLAZADA (VERSIÓN FINAL) ---
 def handle_initial_message(from_number, user_name, text):
-    # PRIMERO: Si el mensaje es una FAQ, se maneja y terminamos
-    # Se hace aquí para que la lógica de los anuncios tenga prioridad
-    if check_and_handle_faq(from_number, text, None):
-        return
-
-    # SEGUNDO: Si no es una FAQ, buscamos una intención de anuncio
+    # PRIMERO: Buscamos una intención de anuncio
     intent_id = find_matching_intent(text)
 
     # Si se encuentra una intención, personalizamos la respuesta y el flujo
@@ -453,7 +448,11 @@ def handle_initial_message(from_number, user_name, text):
         save_session(from_number, session_data)
         return
     
-    # TERCERO: Si no es un anuncio, se ejecuta el flujo normal de bienvenida
+    # SEGUNDO: Si no es un anuncio, revisamos si es una FAQ
+    if check_and_handle_faq(from_number, text, None):
+        return
+        
+    # TERCERO: Si no es un anuncio ni una FAQ, se ejecuta el flujo normal de bienvenida
     if MENU_PRINCIPAL:
         welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
         botones = [{'id': '1', 'title': '🛍️ Ver Colección'}, {'id': '2', 'title': '❓ Preguntas'}]
@@ -470,12 +469,25 @@ def handle_menu_choice(from_number, text, session, product_data):
     if choice == '1':
         if CATALOGO_PRODUCTOS:
             mensaje_catalogo = "¡Genial! Estas son nuestras colecciones disponibles. Elige una para ver los detalles:"
-            catalogo_texto = "\n".join([f"{key}️⃣ {value.get('nombre', '')}" for key, value in sorted(CATALOGO_PRODUCTOS.items())])
+            catalogo_texto = "\n".join([f"{idx}️⃣ {value.get('nombre', '')}" for idx, (key, value) in enumerate(sorted(CATALOGO_PRODUCTOS.items()), 1)])
             
             send_text_message(from_number, f"{mensaje_catalogo}\n\n{catalogo_texto}")
             save_session(from_number, {"state": "awaiting_product_choice"})
         else:
             send_text_message(from_number, "Lo siento, no pude cargar el catálogo en este momento.")
+
+    # El usuario eligió ver las FAQs -> RESPUESTA DE TEXTO
+    elif choice == '2':
+        if MENU_FAQ:
+            mensaje_faq = "¡Claro! Aquí tienes nuestras dudas más comunes. Elige una para ver la respuesta:"
+            faq_texto = "\n".join([f"{key}️⃣ {value.get('pregunta', '')}" for key, value in sorted(MENU_FAQ.items())])
+
+            send_text_message(from_number, f"{mensaje_faq}\n\n{faq_texto}")
+            save_session(from_number, {"state": "awaiting_faq_choice"})
+        else:
+            send_text_message(from_number, "Lo siento, no pude cargar las preguntas frecuentes.")
+    else:
+        send_text_message(from_number, "Opción no válida. Por favor, elige una de las opciones.")
 
     # El usuario eligió ver las FAQs -> RESPUESTA DE TEXTO
     elif choice == '2':
@@ -495,18 +507,22 @@ def handle_product_choice(from_number, text, session, product_data):
     choice = text.strip()
     
     # Buscamos la elección del cliente en nuestro catálogo cargado
-    product_info = CATALOGO_PRODUCTOS.get(choice)
+    product_list = sorted(CATALOGO_PRODUCTOS.items())
     
-    if product_info and product_info.get('product_id'):
-        # Si encontramos el producto, obtenemos su ID y reiniciamos el flujo de venta
-        # para ese producto específico.
-        product_id = product_info.get('product_id')
-        user_name = session.get('user_name', 'Usuario')
+    # Aseguramos que la elección sea un número válido
+    if choice.isdigit() and int(choice) > 0 and int(choice) <= len(product_list):
+        product_info = product_list[int(choice) - 1][1] # El [1] es para obtener el valor del diccionario
+        
+        if product_info and product_info.get('product_id'):
+            # Si encontramos el producto, obtenemos su ID y reiniciamos el flujo de venta
+            product_id = product_info.get('product_id')
+            user_name = session.get('user_name', 'Usuario')
 
-        # Usamos el product_id como "palabra clave" para que handle_initial_message lo encuentre
-        handle_initial_message(from_number, user_name, product_id)
-    else:
-        send_text_message(from_number, "Opción no válida. Por favor, elige un número del catálogo.")
+            # Usamos el product_id como "palabra clave" para que handle_initial_message lo encuentre
+            handle_initial_message(from_number, user_name, product_id)
+            return
+
+    send_text_message(from_number, "Opción no válida. Por favor, elige un número del catálogo.")
 
 def handle_faq_choice(from_number, text, session, product_data):
     choice = text.strip()
