@@ -367,24 +367,26 @@ def find_matching_intent(text):
             return intent_id
     return None
 
-
 # ==============================================================================
 # 6. LÓGICA DE LA CONVERSACIÓN - ETAPA 1 (EMBUDO DE VENTAS)
 # ==============================================================================
-# --- FUNCIÓN `handle_initial_message` REEMPLAZADA Y CORREGIDA ---
 def handle_initial_message(from_number, user_name, text):
-    # --- INICIO DE LA CORRECCIÓN ---
-    # PRIMERO: Intentamos ver si el texto es un ID de producto directo (del menú)
+    # --- CORRECCIÓN DE LÓGICA ---
+    # PRIMERO: Intentamos ver si el texto es un ID de producto directo (del menú del catálogo).
     try:
         product_doc = db.collection('productos').document(text).get()
         if product_doc.exists:
             product_data = product_doc.to_dict()
-            product_id = text
+            product_id = text # El texto es el ID del producto
             
+            # Envía la imagen principal del producto
             url_img = product_data.get('imagenes', {}).get('principal')
-            if url_img: send_image_message(from_number, url_img)
-            time.sleep(1)
+            if url_img:
+                send_image_message(from_number, url_img)
+                time.sleep(1) # Pequeña pausa para que se sienta natural
 
+            # --- CORRECCIÓN CLAVE ---
+            # Ahora, busca y envía el mensaje de bienvenida asociado.
             session_data = {
                 "state": "awaiting_occasion_response", # Estado inicial del flujo de compra
                 "product_id": product_id,
@@ -395,19 +397,19 @@ def handle_initial_message(from_number, user_name, text):
                 "is_upsell": False
             }
             
-            # Usamos una respuesta genérica para el inicio del flujo de compra
+            # Usamos el mensaje de bienvenida genérico para iniciar el flujo
             mensaje_personalizado = INITIAL_INTENTS.get('responses', {}).get('girasol_general_response')
             if mensaje_personalizado:
                 mensaje_final = mensaje_personalizado.replace("{user_name}", user_name)
                 send_text_message(from_number, mensaje_final)
 
             save_session(from_number, session_data)
-            return
+            return # Termina la ejecución aquí porque ya encontramos una acción.
     except Exception as e:
-        logger.info(f"El texto '{text}' no es un ID de producto. Continuando con la lógica normal. Error: {e}")
-    # --- FIN DE LA CORRECCIÓN ---
-        
-    # SEGUNDO: Si no es un ID de producto, buscamos una intención de anuncio
+        logger.info(f"El texto '{text}' no es un ID de producto. Continuando con la lógica normal.")
+    
+    # --- CORRECCIÓN DE PRIORIDAD ---
+    # SEGUNDO: Si no fue un ID, buscamos si es un mensaje de un anuncio.
     intent_id = find_matching_intent(text)
     if intent_id:
         intent_info = INITIAL_INTENTS.get('intents', {}).get(intent_id, {})
@@ -421,8 +423,9 @@ def handle_initial_message(from_number, user_name, text):
             return
 
         url_img_intent = product_data_intent.get('imagenes', {}).get('principal')
-        if url_img_intent: send_image_message(from_number, url_img_intent)
-        time.sleep(1)
+        if url_img_intent:
+            send_image_message(from_number, url_img_intent)
+            time.sleep(1)
 
         session_data = {
             "state": intent_info.get('state_after_intro'),
@@ -440,13 +443,13 @@ def handle_initial_message(from_number, user_name, text):
             send_text_message(from_number, mensaje_final)
 
         save_session(from_number, session_data)
-        return
+        return # Termina la ejecución aquí.
     
-    # TERCERO: Si no es un anuncio, revisamos si es una FAQ
+    # TERCERO: Si no fue un anuncio, revisamos si es una FAQ.
     if check_and_handle_faq(from_number, text, None):
-        return
+        return # Termina la ejecución aquí.
         
-    # CUARTO: Si no es nada de lo anterior, se ejecuta el flujo normal de bienvenida
+    # CUARTO: Si no fue nada de lo anterior, se ejecuta el flujo normal de bienvenida.
     if MENU_PRINCIPAL:
         welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
         botones = [{'id': '1', 'title': '🛍️ Ver Colección'}, {'id': '2', 'title': '❓ Preguntas'}]
