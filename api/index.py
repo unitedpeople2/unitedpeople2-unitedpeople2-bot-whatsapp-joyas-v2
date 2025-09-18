@@ -360,6 +360,19 @@ def handle_occasion_response(from_number, text, session, product_data):
     save_session(from_number, session)
     
 def handle_purchase_decision(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    # Revisa si el texto NO es una de las opciones esperadas en los botones
+    if text not in ['si_coordinar', 'no_gracias']:
+        # Si no es una opción, intenta manejarla como una FAQ
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5) # Pausa para que el usuario lea la respuesta de la FAQ
+            # Vuelve a hacer la pregunta original con los botones
+            reprompt_message = ("Continuando con tu pedido... 😊\n\n¿Te gustaría coordinar ahora para asegurar el tuyo?")
+            botones = [{'id': 'si_coordinar', 'title': '✅ Sí, coordinar'}, {'id': 'no_gracias', 'title': 'No, gracias'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return # Detiene la ejecución para esperar la nueva respuesta
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'si_coordinar':
         url_imagen_upsell = product_data.get('imagenes', {}).get('upsell')
         if url_imagen_upsell:
@@ -379,7 +392,7 @@ def handle_purchase_decision(from_number, text, session, product_data):
         send_interactive_message(from_number, mensaje_decision, botones)
         session['state'] = 'awaiting_upsell_decision'
         save_session(from_number, session)
-    else:
+    else: # Esto ahora solo se activará si el cliente presiona 'No, gracias'
         delete_session(from_number)
         send_text_message(from_number, "Entendido. Si cambias de opinión, aquí estaré. ¡Que tengas un buen día! 😊")
 
@@ -400,6 +413,16 @@ def handle_upsell_decision(from_number, text, session, product_data):
     save_session(from_number, session)
 
 def handle_location(from_number, text, session, product_data):
+    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
+    if text not in ['lima', 'provincia']:
+        if check_and_handle_faq(from_number, text):
+            time.sleep(1.5)
+            reprompt_message = "Espero haber aclarado tu duda. Continuando... Para coordinar tu envío gratis, indícame si es para:"
+            botones = [{'id': 'lima', 'title': '📍 Lima'}, {'id': 'provincia', 'title': '🚚 Provincia'}]
+            send_interactive_message(from_number, reprompt_message, botones)
+            return
+
+    # --- LÓGICA ORIGINAL DE LA FUNCIÓN ---
     if text == 'lima':
         session.update({"state": "awaiting_lima_district", "provincia": "Lima"})
         save_session(from_number, session)
@@ -409,7 +432,8 @@ def handle_location(from_number, text, session, product_data):
         save_session(from_number, session)
         send_text_message(from_number, "¡Entendido! Para continuar, indícame tu *provincia y distrito*. ✍🏽\n\n📝 *Ej: Arequipa, Arequipa*")
     else:
-        mensaje = "Por favor, elige una de las dos opciones:"
+        # Esta respuesta ahora es para cuando el cliente escribe algo que no es ni FAQ ni una opción válida
+        mensaje = "Por favor, elige una de las dos opciones del menú:"
         botones = [{'id': 'lima', 'title': '📍 Lima'}, {'id': 'provincia', 'title': '🚚 Provincia'}]
         send_interactive_message(from_number, mensaje, botones)
 
