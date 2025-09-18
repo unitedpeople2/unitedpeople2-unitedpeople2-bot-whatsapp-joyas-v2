@@ -505,13 +505,11 @@ def handle_province_district(from_number, text, session, product_data):
     session.update({"tipo_envio": "Provincia Shalom", "metodo_pago": "Adelanto y Saldo (Yape/Plin)", "provincia": provincia, "distrito": distrito})
     adelanto = BUSINESS_RULES.get('adelanto_shalom', 20)
     
-    # --- INICIO DE LA CORRECCIÓN ---
-    # Restaurar el mensaje persuasivo con urgencia
+    # --- TEXTO PERSUASIVO RESTAURADO ---
     mensaje = (f"¡Genial! Prepararemos tu envío para *{provincia}* vía Shalom.\n\n"
                f"Nuestros despachos a provincia se están agendando rápidamente ⚠️. Para **asegurar y priorizar** tu paquete en la próxima salida, solicitamos un adelanto de **S/ {adelanto:.2f}** como compromiso de recojo.\n\n"
                "¿Procedemos?")
-    # --- FIN DE LA CORRECCIÓN ---
-
+    
     botones = [{'id': 'si_acuerdo', 'title': '✅ Sí, de acuerdo'}, {'id': 'no_acuerdo', 'title': 'No en este momento'}]
     send_interactive_message(from_number, mensaje, botones)
     session['state'] = 'awaiting_shalom_agreement'
