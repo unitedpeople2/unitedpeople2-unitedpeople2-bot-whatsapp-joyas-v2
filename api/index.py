@@ -451,7 +451,7 @@ def handle_initial_message(from_number, user_name, text):
         
     # CUARTO: Si no fue nada de lo anterior, se ejecuta el flujo normal de bienvenida.
     if MENU_PRINCIPAL:
-        welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! ¿Cómo puedo ayudarte?')
+        welcome_message = MENU_PRINCIPAL.get('mensaje_bienvenida', '¡Hola! v2 ¿Cómo puedo ayudarte?')
         botones = [{'id': '1', 'title': '🛍️ Ver Colección'}, {'id': '2', 'title': '❓ Preguntas'}]
         send_interactive_message(from_number, welcome_message, botones)
         save_session(from_number, {"state": "awaiting_menu_choice", "user_name": user_name, "whatsapp_id": from_number})
