@@ -770,11 +770,14 @@ def handle_payment_received(from_number, text, session, product_data):
                 send_text_message(from_number, mensaje_resumen)
                 time.sleep(1.5)
                 mensaje_solicitud = (f"¡Ya casi es tuya! 💎\n\n"
-                                     f"Para garantizar una entrega exitosa *{dia_entrega}*, por favor confirma que habrá alguien disponible para recibir tu joya y pagar el saldo 💵.\n\n"
-                                     f"👉 Solo responde *CONFIRMO* y tu pedido quedará asegurado en la ruta. 🚚✨")
-                send_text_message(from_number, mensaje_solicitud)
+                                     f"Para garantizar una entrega exitosa *{dia_entrega}*, por favor confirma que habrá alguien disponible para recibir tu joya y pagar el saldo 💵.")
+                
+                botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
+                send_interactive_message(from_number, mensaje_solicitud, botones)
+
                 session['state'] = 'awaiting_delivery_confirmation_lima'
                 save_session(from_number, session)
+
             else: # Shalom
                 resumen_shalom = (f"¡Adelanto confirmado, gracias! ✨ Aquí tienes el resumen final de tu pedido:\n\n"
                                   f"*Tu Pedido en Detalle:*\n"
@@ -795,13 +798,16 @@ def handle_payment_received(from_number, text, session, product_data):
         send_text_message(from_number, "Estoy esperando la *captura de pantalla* de tu pago. 😊")
 
 def handle_delivery_confirmation_lima(from_number, text, session, product_data):
-    if 'confirmo' in text.lower():
+    if 'confirmo' in text.lower() or text == 'confirmo_entrega_lima':
         mensaje_final = ("¡Listo! ✅ Tu pedido ha sido *confirmado en la ruta* 🚚.\n\n"
                          "De parte de todo el equipo de *Daaqui Joyas*, ¡muchas gracias por tu compra! 🎉😊")
         send_text_message(from_number, mensaje_final)
         delete_session(from_number)
     else:
-        send_text_message(from_number, "Por favor, para asegurar tu pedido, responde con la palabra *CONFIRMO*.")
+        # Enviamos de nuevo el mensaje con el botón por si responde otra cosa
+        mensaje_solicitud = ("Por favor, para asegurar tu pedido, presiona el botón de confirmación.")
+        botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
+        send_interactive_message(from_number, mensaje_solicitud, botones)
 
 # ------------------------------------------------------------------------------
 # 7.2. Diccionario de Despacho y Función Principal del Flujo
@@ -977,19 +983,13 @@ def process_message(message, contacts):
                 return
             venta_activa = None
             if db:
-                ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
-                venta_activa = next(ventas_pendientes, None)
-            if venta_activa:
-                send_text_message(from_number, "Entendido. He detenido los recordatorios sobre tu pedido pendiente. Si tienes alguna consulta, un asesor se pondrá en contacto. ¡Gracias!")
-                if ADMIN_WHATSAPP_NUMBER:
-                    send_text_message(ADMIN_WHATSAPP_NUMBER, f"⚠️ El cliente {from_number} ({user_name}) ha solicitado cancelar el seguimiento de su pedido pendiente.")
-                return
-            return
-
-        session = get_session(from_number)
-        if not session:
-            if db:
-                ventas_pendientes = db.collection('ventas').where('cliente_id', '==', from_number).where('estado_pedido', '==', 'Adelanto Pagado').limit(1).stream()
+                # AÑADIMOS UN FILTRO PARA QUE SOLO BUSQUE ENVÍOS TIPO SHALOM
+                ventas_pendientes = db.collection('ventas') \
+                    .where('cliente_id', '==', from_number) \
+                    .where('estado_pedido', '==', 'Adelanto Pagado') \
+                    .where('tipo_envio', 'in', ['Provincia Shalom', 'Lima Shalom']) \
+                    .limit(1).stream()
+                
                 venta_activa = next(ventas_pendientes, None)
                 if venta_activa:
                     if message_type == 'image':
