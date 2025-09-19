@@ -266,22 +266,17 @@ def check_and_handle_faq(from_number, text):
                 return True
     return False
 
-# Reemplaza la función que tienes en tu archivo con esta
+# Reemplaza la función en tu archivo con esta versión final
 def guardar_pedido_en_sheet(sale_data):
     if not worksheet_pedidos:
         logger.error("[Sheets] La conexión no está inicializada. No se puede guardar el pedido.")
         return False
     try:
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Define la zona horaria de Perú (UTC-5)
         peru_tz = timezone(timedelta(hours=-5))
-        # Obtiene la hora actual en la zona horaria de Perú y la formatea
         timestamp_peru = datetime.now(peru_tz).strftime("%d/%m/%Y %H:%M:%S")
-        # --- FIN DE LA CORRECCIÓN ---
-
-        # Define el orden correcto de las columnas para la hoja de cálculo
+        
         nueva_fila = [
-            timestamp_peru, # <-- Usamos la nueva variable con la hora correcta
+            timestamp_peru,
             sale_data.get('id_venta', 'N/A'),
             sale_data.get('producto_nombre', 'N/A'),
             sale_data.get('precio_venta', 0),
@@ -294,8 +289,15 @@ def guardar_pedido_en_sheet(sale_data):
             sale_data.get('detalles_cliente', 'N/A'),
             sale_data.get('cliente_id', 'N/A')
         ]
-        worksheet_pedidos.append_row(nueva_fila)
-        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado exitosamente.")
+        
+        # --- INICIO DE LA CORRECCIÓN ---
+        # En lugar de append_row, buscamos la primera fila vacía e insertamos ahí
+        columna_a = worksheet_pedidos.col_values(1)
+        indice_fila_vacia = len(columna_a) + 1
+        worksheet_pedidos.insert_row(nueva_fila, index=indice_fila_vacia)
+        # --- FIN DE LA CORRECCIÓN ---
+
+        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado exitosamente en la fila {indice_fila_vacia}.")
         return True
     except Exception as e:
         logger.error(f"[Sheets] ERROR INESPERADO al guardar: {e}")
