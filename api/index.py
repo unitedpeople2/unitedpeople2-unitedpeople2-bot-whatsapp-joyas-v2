@@ -266,10 +266,10 @@ def check_and_handle_faq(from_number, text):
                 return True
     return False
 
-# Reemplaza la función en tu archivo con esta versión final
+# Reemplaza la función en tu archivo con esta versión final y definitiva
 def guardar_pedido_en_sheet(sale_data):
     if not worksheet_pedidos:
-        logger.error("[Sheets] La conexión no está inicializada. No se puede guardar el pedido.")
+        logger.error("[Sheets] La conexión no está inicializada.")
         return False
     try:
         peru_tz = timezone(timedelta(hours=-5))
@@ -291,13 +291,19 @@ def guardar_pedido_en_sheet(sale_data):
         ]
         
         # --- INICIO DE LA CORRECCIÓN ---
-        # En lugar de append_row, buscamos la primera fila vacía e insertamos ahí
+        # 1. Encontrar la primera fila vacía
         columna_a = worksheet_pedidos.col_values(1)
         indice_fila_vacia = len(columna_a) + 1
-        worksheet_pedidos.insert_row(nueva_fila, index=indice_fila_vacia)
+        
+        # 2. Definir el rango a actualizar (Ej: "A2:L2")
+        letra_ultima_columna = chr(ord('A') + len(nueva_fila) - 1)
+        rango_a_actualizar = f"A{indice_fila_vacia}:{letra_ultima_columna}{indice_fila_vacia}"
+        
+        # 3. Actualizar el rango con los datos, sin insertar ni mover filas
+        worksheet_pedidos.update(rango_a_actualizar, [nueva_fila])
         # --- FIN DE LA CORRECCIÓN ---
 
-        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado exitosamente en la fila {indice_fila_vacia}.")
+        logger.info(f"[Sheets] Pedido {sale_data.get('id_venta')} guardado en la fila {indice_fila_vacia}.")
         return True
     except Exception as e:
         logger.error(f"[Sheets] ERROR INESPERADO al guardar: {e}")
