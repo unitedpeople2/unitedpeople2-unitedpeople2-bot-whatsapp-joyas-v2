@@ -266,14 +266,22 @@ def check_and_handle_faq(from_number, text):
                 return True
     return False
 
+# Reemplaza la función que tienes en tu archivo con esta
 def guardar_pedido_en_sheet(sale_data):
     if not worksheet_pedidos:
         logger.error("[Sheets] La conexión no está inicializada. No se puede guardar el pedido.")
         return False
     try:
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Define la zona horaria de Perú (UTC-5)
+        peru_tz = timezone(timedelta(hours=-5))
+        # Obtiene la hora actual en la zona horaria de Perú y la formatea
+        timestamp_peru = datetime.now(peru_tz).strftime("%d/%m/%Y %H:%M:%S")
+        # --- FIN DE LA CORRECCIÓN ---
+
         # Define el orden correcto de las columnas para la hoja de cálculo
         nueva_fila = [
-            datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            timestamp_peru, # <-- Usamos la nueva variable con la hora correcta
             sale_data.get('id_venta', 'N/A'),
             sale_data.get('producto_nombre', 'N/A'),
             sale_data.get('precio_venta', 0),
