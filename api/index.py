@@ -171,16 +171,25 @@ def delete_session(user_id):
     except Exception as e:
         logger.error(f"Error eliminando sesión para {user_id}: {e}")
 
+# Reemplaza tu función original con esta
 def save_completed_sale_and_customer(session_data):
     if not db: return False, None
     try:
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Define la zona horaria de Perú (UTC-5)
+        peru_tz = timezone(timedelta(hours=-5))
+        # Obtiene la hora actual en la zona horaria de Perú
+        now_in_peru = datetime.now(peru_tz)
+        # --- FIN DE LA CORRECCIÓN ---
+
         sale_id = str(uuid.uuid4())
         customer_id = session_data.get('whatsapp_id')
         precio_total = session_data.get('product_price', 0)
         adelanto = session_data.get('adelanto', 0)
         
         sale_data = {
-            "fecha": firestore.SERVER_TIMESTAMP, "id_venta": sale_id,
+            "fecha": now_in_peru, # <-- CAMBIO 1: Usamos la hora de Perú
+            "id_venta": sale_id,
             "producto_id": session_data.get('product_id'), "producto_nombre": session_data.get('product_name'),
             "precio_venta": precio_total, "tipo_envio": session_data.get('tipo_envio'),
             "metodo_pago": session_data.get('metodo_pago'), "provincia": session_data.get('provincia'),
@@ -195,7 +204,7 @@ def save_completed_sale_and_customer(session_data):
             "nombre_perfil_wa": session_data.get('user_name'),
             "provincia_ultimo_envio": session_data.get('provincia'), "distrito_ultimo_envio": session_data.get('distrito'),
             "detalles_ultimo_envio": session_data.get('detalles_cliente'), "total_compras": firestore.Increment(1),
-            "fecha_ultima_compra": firestore.SERVER_TIMESTAMP
+            "fecha_ultima_compra": now_in_peru # <-- CAMBIO 2: Usamos la hora de Perú
         }
         db.collection('clientes').document(customer_id).set(customer_data, merge=True)
         logger.info(f"Cliente {customer_id} creado/actualizado.")
@@ -239,7 +248,13 @@ def parse_province_district(text):
     return clean_text.title(), clean_text.title()
 
 def get_delivery_day_message():
-    return BUSINESS_RULES.get('mensaje_dia_habil', 'mañana') if datetime.now().weekday() < 4 else BUSINESS_RULES.get('mensaje_fin_de_semana', 'el Lunes')
+    # Define la zona horaria de Perú (UTC-5)
+    peru_tz = timezone(timedelta(hours=-5))
+    # Obtiene la hora actual específicamente para la zona horaria de Perú
+    now_in_peru = datetime.now(peru_tz)
+    
+    # La lógica se mantiene, pero ahora usa la hora correcta de Perú
+    return BUSINESS_RULES.get('mensaje_dia_habil', 'mañana') if now_in_peru.weekday() < 4 else BUSINESS_RULES.get('mensaje_fin_de_semana', 'el Lunes')
 
 def check_and_handle_faq(from_number, text):
     text_lower = text.lower()
