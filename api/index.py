@@ -772,7 +772,7 @@ def handle_payment_received(from_number, text, session, product_data):
     if text == "COMPROBANTE_RECIBIDO":
         guardado_exitoso, sale_data = save_completed_sale_and_customer(session)
         if guardado_exitoso:
-            guardar_pedido_en_sheet(sale_data) # Asumiendo que esta función existe
+            guardar_pedido_en_sheet(sale_data) 
             if ADMIN_WHATSAPP_NUMBER:
                 admin_message = (f"🎉 ¡Nueva Venta Confirmada! 🎉\n"
                                  f"Producto: {sale_data.get('producto_nombre')}\nTipo: {sale_data.get('tipo_envio')}\n"
@@ -782,64 +782,68 @@ def handle_payment_received(from_number, text, session, product_data):
             if session.get('tipo_envio') == 'Lima Contra Entrega':
                 dia_entrega = get_delivery_day_message()
                 horario = BUSINESS_RULES.get('horario_entrega_lima', 'durante el día')
-                mensaje_resumen = (f"¡Adelanto confirmado! ✨ Resumen final:\n\n"
-                                   f"*Total:* S/ {sale_data.get('precio_venta', 0):.2f}\n"
-                                   f"*Adelanto:* - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
-                                   f"*Saldo a Pagar:* S/ {sale_data.get('saldo_restante', 0):.2f}\n\n"
+                mensaje_resumen = (f"¡Adelanto confirmado, gracias! ✨ Aquí tienes el resumen final de tu pedido y los detalles de la entrega:\n\n"
+                                   f"*Tu Pedido en Detalle:*\n"
+                                   f"💰 *Costo Total:* S/ {sale_data.get('precio_venta', 0):.2f}\n"
+                                   f"✅ *Adelanto Recibido:* - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
+                                   f"💵 *Saldo a Pagar al recibir:* S/ {sale_data.get('saldo_restante', 0):.2f}\n\n"
                                    f"*Entrega Programada:*\n"
-                                   f"🗓️ Día: {dia_entrega.title()}\n"
-                                   f"⏰ Horario: {horario}\n\n"
-                                   "A continuación, el último paso para asegurar tu envío.")
+                                   f"🗓️ *Día:* {dia_entrega.title()}\n"
+                                   f"⏰ *Horario:* {horario}\n\n"
+                                   f"A continuación, te pediré un último paso para asegurar tu envío.")
                 send_text_message(from_number, mensaje_resumen)
                 time.sleep(1.5)
-                mensaje_solicitud = (f"Para garantizar la entrega *{dia_entrega}*, por favor confirma que habrá alguien para recibir y pagar el saldo.")
+                mensaje_solicitud = (f"¡Ya casi es tuya! 💎\n\n"
+                                     f"Para garantizar una entrega exitosa *{dia_entrega}*, por favor confirma que habrá alguien disponible para recibir tu joya y pagar el saldo 💵.\n\n"
+                                     f"👉 Solo presiona *CONFIRMO* y tu pedido quedará asegurado en la ruta. 🚚✨")
                 botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
                 send_interactive_message(from_number, mensaje_solicitud, botones)
                 session['state'] = 'awaiting_delivery_confirmation_lima'
                 save_session(from_number, session)
             else: # Shalom
-                resumen_shalom = (f"¡Adelanto confirmado! ✨ Resumen final:\n\n"
-                                  f"*Total:* S/ {sale_data.get('precio_venta', 0):.2f}\n*Adelanto:* - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
-                                  f"*Saldo a Pagar:* S/ {sale_data.get('saldo_restante', 0):.2f}")
+                # <-- INICIO DE LA MODIFICACIÓN -->
+                resumen_shalom = (f"¡Adelanto confirmado, gracias! ✨ Aquí tienes el resumen final de tu pedido:\n\n"
+                                  f"*Tu Pedido en Detalle:*\n"
+                                  f"💰 *Costo Total:* S/ {sale_data.get('precio_venta', 0):.2f}\n"
+                                  f"✅ *Adelanto Recibido:* - S/ {sale_data.get('adelanto_recibido', 0):.2f}\n"
+                                  f"------------------------------------\n"
+                                  f"💵 *Saldo a Pagar:* S/ {sale_data.get('saldo_restante', 0):.2f}")
                 send_text_message(from_number, resumen_shalom)
                 time.sleep(1.5)
+
                 tiempo_entrega = "1-2 días hábiles" if session.get('tipo_envio') == 'Lima Shalom' else "3-5 días hábiles"
                 proximos_pasos = (f"📝 *Próximos Pasos:*\n\n"
-                                  f"En las próximas 24h hábiles te enviaremos tu código de seguimiento. El tiempo de entrega es de *{tiempo_entrega}*.")
+                                  f"⏳ En las próximas 24h hábiles te enviaremos tu código de seguimiento 📲. El tiempo de entrega en agencia es de *{tiempo_entrega}* 📦.")
+                # <-- FIN DE LA MODIFICACIÓN -->
                 send_text_message(from_number, proximos_pasos)
                 delete_session(from_number)
         else:
-            send_text_message(from_number, "¡Uy! Hubo un problema al registrar tu pedido. Un asesor se pondrá en contacto.")
+            send_text_message(from_number, "¡Uy! Hubo un problema al registrar tu pedido. Un asesor se pondrá en contacto contigo.")
     else:
         send_text_message(from_number, "Estoy esperando la *captura de pantalla* de tu pago. 😊")
 
 def handle_delivery_confirmation_lima(from_number, text, session, product_data):
-    # --- INICIO DEL FILTRO INTELIGENTE PARA INTERRUPCIONES ---
-    # Revisa si la respuesta NO es una confirmación
     if 'confirmo' not in text.lower() and text != 'confirmo_entrega_lima':
-        # Si no es una confirmación, intenta manejarla como una FAQ
         if check_and_handle_faq(from_number, text):
             time.sleep(1.5)
-            # Vuelve a hacer la pregunta original
             dia_entrega = get_delivery_day_message()
             reprompt_message = (f"Espero haber aclarado tu duda. 😊 Para finalizar, solo necesito que confirmes que habrá alguien disponible para recibir tu joya y pagar el saldo el día {dia_entrega}.")
             botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
             send_interactive_message(from_number, reprompt_message, botones)
             return
 
-    # --- LÓGICA ORIGINAL CON TEXTO MEJORADO ---
     if 'confirmo' in text.lower() or text == 'confirmo_entrega_lima':
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Restaurar el mensaje final mejorado
+        
+        # <-- INICIO DE LA MODIFICACIÓN 2 -->
         mensaje_final = (
             "¡Listo! ✅ Tu pedido ha sido *confirmado en la ruta* 🚚.\n\n"
-            "De parte de todo el equipo de *Daaqui Joyas*, ¡muchas gracias por tu compra! 😊"
+            "De parte de todo el equipo de *Daaqui Joyas*, ¡muchas gracias por tu compra! 🎉😊"
         )
-        # --- FIN DE LA CORRECCIÓN ---
+        # <-- FIN DE LA MODIFICACIÓN 2 -->
+
         send_text_message(from_number, mensaje_final)
         delete_session(from_number)
     else:
-        # Si no fue una FAQ pero tampoco una confirmación, volvemos a pedirla.
         mensaje_solicitud = ("Por favor, para asegurar tu pedido, presiona el botón de confirmación.")
         botones = [{'id': 'confirmo_entrega_lima', 'title': '✅ CONFIRMO'}]
         send_interactive_message(from_number, mensaje_solicitud, botones)
@@ -943,80 +947,40 @@ def process_message(message, contacts):
 # ==============================================================================
 @app.route('/api/send-tracking', methods=['POST'])
 def send_tracking_code():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or auth_header != f'Bearer {MAKE_SECRET_TOKEN}':
+    if (auth_header := request.headers.get('Authorization')) is None or auth_header != f'Bearer {MAKE_SECRET_TOKEN}':
+        logger.warning("Acceso no autorizado a /api/send-tracking")
         return jsonify({'error': 'No autorizado'}), 401
     
     data = request.get_json()
-    to_number = data.get('to_number')
-    nro_orden = data.get('nro_orden')
-    codigo_recojo = data.get('codigo_recojo')
+    to_number, nro_orden, codigo_recojo = data.get('to_number'), data.get('nro_orden'), data.get('codigo_recojo')
     
     if not to_number or not nro_orden:
+        logger.error("Faltan parámetros en la solicitud de Make.com")
         return jsonify({'error': 'Faltan parámetros'}), 400
     
     try:
         customer_name = "cliente"
-        if db:
-            customer_doc = db.collection('clientes').document(str(to_number)).get()
-            if customer_doc.exists:
-                customer_name = customer_doc.to_dict().get('nombre_perfil_wa', 'cliente')
+        if db and (customer_doc := db.collection('clientes').document(str(to_number)).get()).exists:
+            customer_name = customer_doc.to_dict().get('nombre_perfil_wa', 'cliente')
 
-        message_1 = (f"¡Hola {customer_name}! 👋🏽✨\n\nTu pedido de Daaqui Joyas ha sido enviado. 🚚\n\n"
+        message_1 = (f"¡Hola {customer_name}! 👋🏽✨\n\n¡Excelentes noticias! Tu pedido de Daaqui Joyas ha sido enviado. 🚚\n\n"
                      f"Datos para seguimiento Shalom:\n👉🏽 *Nro. de Orden:* {nro_orden}" +
-                     (f"\n👉🏽 *Código de Recojo:* {codigo_recojo}" if codigo_recojo else ""))
+                     (f"\n👉🏽 *Código de Recojo:* {codigo_recojo}" if codigo_recojo else "") +
+                     "\n\nA continuación, los pasos a seguir:")
         send_text_message(str(to_number), message_1)
         time.sleep(2)
-        message_2 = ("*Pasos para el recojo:*\n"
-                     "1. *SEGUIMIENTO:* Descarga la app \"Mi Shalom\" y usa los datos de arriba para ver el estado.\n"
-                     "2. *PAGA EL SALDO:* Cuando la app confirme que llegó a la agencia, yapea el saldo restante.\n"
-                     "3. *RECIBE TU CLAVE:* Envíanos la captura y te daremos la clave secreta de recojo.")
+        message_2 = ("*Pasos para una entrega exitosa:* 👇\n\n"
+                     "*1. HAZ EL SEGUIMIENTO:* 📲\nDescarga la app *\"Mi Shalom\"*. Si eres nuevo, regístrate. Con los datos de arriba, podrás ver el estado de tu paquete.\n\n"
+                     "*2. PAGA EL SALDO CUANDO LLEGUE:* 💳\nCuando la app confirme que tu pedido llegó a la agencia, yapea o plinea el saldo restante. Haz este paso *antes de ir a la agencia*.\n\n"
+                     "*3. AVISA Y RECIBE TU CLAVE:* 🔑\nApenas nos envíes la captura de tu pago, lo validaremos y te daremos la *clave secreta de recojo*. ¡La necesitarás junto a tu DNI! 🎁")
         send_text_message(str(to_number), message_2)
+        time.sleep(2)
+        message_3 = ("✨ *¡Ya casi es tuya! Tu último paso es el más importante.* ✨\n\n"
+                     "Para darte atención prioritaria, responde este chat con la **captura de tu pago**.\n\n"
+                     "¡Estaremos atentos para enviarte tu clave al instante! La necesitarás junto a tu DNI para recibir tu joya. 🎁")
+        send_text_message(str(to_number), message_3)
+
         return jsonify({'status': 'mensajes enviados'}), 200
     except Exception as e:
-        logger.error(f"Error en send_tracking_code: {e}")
+        logger.error(f"Error crítico en send_tracking_code: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
-
-@app.route('/api/notify-admin', methods=['POST'])
-def notify_admin():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or auth_header != f'Bearer {MAKE_SECRET_TOKEN}':
-        return jsonify({'error': 'No autorizado'}), 401
-    
-    data = request.get_json()
-    message_to_admin = data.get('message')
-
-    if not message_to_admin:
-        return jsonify({'error': 'Falta el parámetro message'}), 400
-    
-    try:
-        if ADMIN_WHATSAPP_NUMBER:
-            send_text_message(ADMIN_WHATSAPP_NUMBER, message_to_admin)
-            return jsonify({'status': 'notificacion enviada'}), 200
-        else:
-            return jsonify({'error': 'Admin no configurado'}), 500
-    except Exception as e:
-        logger.error(f"Error en notify_admin: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 500
-
-# --- INICIO DEL NUEVO CÓDIGO FLEXIBLE ---
-@app.route('/api/send-custom-message', methods=['POST'])
-def send_custom_message():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or auth_header != f'Bearer {MAKE_SECRET_TOKEN}':
-        return jsonify({'error': 'No autorizado'}), 401
-
-    data = request.get_json()
-    to_number = data.get('to_number')
-    message_body = data.get('message')
-
-    if not to_number or not message_body:
-        return jsonify({'error': 'Faltan parámetros: to_number o message'}), 400
-
-    try:
-        send_text_message(str(to_number), message_body)
-        return jsonify({'status': 'mensaje personalizado enviado'}), 200
-    except Exception as e:
-        logger.error(f"Error en send_custom_message: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 500
-# --- FIN DEL NUEVO CÓDIGO ---
